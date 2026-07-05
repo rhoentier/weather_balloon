@@ -51,7 +51,7 @@ Detaillierter Umsetzungsplan auf Basis des Konzepts. Inhalt:
 ## ⬜ Schritt 3 — Hardware bestellen & aufbauen
 
 - [x] Kern gekauft: Heltec WiFi LoRa 32 V2 + NEO-6M (GPS)
-- [x] Sensoren gekauft: BMP280, MPU-6050, DS18B20, GUVA-S12SD, microSD-Modul + Karte
+- [x] Sensoren gekauft: BME280, MPU-6050, DS18B20, GUVA-S12SD, microSD-Modul + Karte
 - [x] Strom gekauft: 4× Energizer Ultimate Lithium AA + Halter
 - [x] Kleinteile gekauft: Kabel, Stiftleisten, Kondensatoren
 - [x] **Action-Cam besorgen** (leicht ~50–70 g; Laufzeit + Kälte vorab prüfen)

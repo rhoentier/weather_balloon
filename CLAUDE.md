@@ -62,7 +62,7 @@ als Code in `src/flight/pins.h`. Kurz:
 | Funktion | GPIO | |
 |---|---|---|
 | GPS NEO-6M | RX **23**, TX **17** | UART2, 9600 Baud. TX ist Pflicht (Flight-Mode!) |
-| BMP280 + MPU-6050 | SDA **4**, SCL **15** | I²C, geteilt mit OLED |
+| BME280 + MPU-6050 | SDA **4**, SCL **15** | I²C, geteilt mit OLED |
 | DS18B20 | **22** | 1-Wire, 4,7 kΩ Pull-up nach 3V3 |
 | GUVA-S12SD (UV) | **36** | ADC1, input-only |
 | microSD | CS **13** | SPI, Bus mit LoRa geteilt (SCK5/MISO19/MOSI27) |

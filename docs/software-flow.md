@@ -30,6 +30,7 @@ flowchart TB
         direction TB
         MAIN["main.cpp<br/>Setup + Loop"]
         GPSFM["gps_flightmode.cpp<br/>UBX senden + ACK lesen"]
+        BME["bme_sensor.cpp<br/>I2C-Lesen via Adafruit-Lib (0x76)"]
     end
 
     subgraph LIB["lib/telemetry/ — hardware-frei (nativ getestet ✅)"]
@@ -37,21 +38,20 @@ flowchart TB
         UBX["ubx.cpp<br/>UBX-Bytes bauen + Checksumme + ACK prüfen"]
         PHASE["flight_phase.cpp<br/>Flugphasen-Automat"]
         REC["record.cpp<br/>CSV-Format (bauen + parsen)"]
-        BMP["bmp280.cpp<br/>ADC-Rohwerte → °C/Pa + Höhenformel"]
     end
 
     MAIN --> GPSFM
     GPSFM -->|nutzt| UBX
+    MAIN -.->|später: aufrufen| BME
     MAIN -.->|später: Höhe füttern| PHASE
     MAIN -.->|später: Zeile schreiben| REC
-    MAIN -.->|später: ADC-Rohwerte einspeisen| BMP
 
     style UBX fill:#d4edda
     style PHASE fill:#d4edda
     style REC fill:#d4edda
-    style BMP fill:#d4edda
     style GPSFM fill:#fff3cd
     style MAIN fill:#fff3cd
+    style BME fill:#fff3cd
 ```
 
 **Warum die Trennung?** Die fehleranfälligsten Teile — die exakte UBX-Byte-
@@ -137,10 +137,9 @@ board-unverifiziert ist (gelb), und was noch fehlt (weiß).
 ```mermaid
 flowchart TD
     L([loop-Iteration]) --> READ_GPS["GPS lesen<br/>✅ LineAssembler + parse_gga → GpsFix"]
-    READ_GPS --> READ_SENS["Sensoren lesen (I²C/ADC)<br/>⬜ BMP280, MPU-6050, DS18B20, UV — noch keine I²C-Anbindung"]
-    READ_SENS --> BMP_CONV["BMP280-Umrechnung<br/>✅ bmp280.cpp: ADC → °C/Pa + Höhe (nativ getestet, wartet auf Rohwerte)"]
+    READ_GPS --> READ_SENS["Sensoren lesen (I²C/ADC)<br/>🔶 BME280 verdrahtet (bme_sensor, Board-Test offen), ⬜ MPU-6050, DS18B20, UV"]
 
-    BMP_CONV --> PHASE["Flugphase aktualisieren<br/>✅ FlightPhaseDetector.update(alt, t)"]
+    READ_SENS --> PHASE["Flugphase aktualisieren<br/>✅ FlightPhaseDetector.update(alt, t)"]
     PHASE --> BUILD["TelemetryRecord befüllen<br/>🔶 in main.cpp verdrahtet"]
 
     BUILD --> CSV["CSV-Zeile bauen<br/>🔶 csv_row() verdrahtet"]
@@ -168,8 +167,7 @@ flowchart TD
     style CSV fill:#fff3cd
     style RATE fill:#d4edda
     style READ_GPS fill:#d4edda
-    style READ_SENS fill:#f8f9fa
-    style BMP_CONV fill:#d4edda
+    style READ_SENS fill:#fff3cd
     style SD fill:#fff3cd
     style LORA fill:#f8f9fa
     style SLOW fill:#f8f9fa
@@ -190,10 +188,10 @@ I²C schreibt. Der Zustand kommt aus dem persistenten `g_rec`/`g_detector`
 Display fünf Zeilen (Titel, GPS-Stufe inkl. Satellitenzahl, SD-Status, Phase,
 Sensorstatus) — der „Startklar?"-Check ohne Laptop am Startort. Die fünfte
 Zeile fasst die vier Sensoren als Kurzcodes zusammen (`B:ok M:-- D:-- U:--` für
-BMP280/MPU-6050/DS18B20/UV) — `ok`, wenn das jeweilige `*_ok`-Flag im
-`DisplayState` gesetzt ist, sonst `--`. Aktuell befüllt `src/flight/main.cpp`
-diese vier Flags noch **nicht** (⬜) — das ist ein späterer Schritt, sobald die
-jeweilige Sensor-Anbindung steht. Beim ersten Übergang in
+BME280/MPU-6050/DS18B20/UV) — `ok`, wenn das jeweilige `*_ok`-Flag im
+`DisplayState` gesetzt ist, sonst `--`. `src/flight/main.cpp` befüllt inzwischen
+`bme_ok` aus dem Ergebnis von `bme_begin()`; `mpu_ok`/`ds18b20_ok`/`uv_ok`
+bleiben noch **unbefüllt** (⬜), bis die jeweilige Sensor-Anbindung steht. Beim ersten Übergang in
 `Ascent` wird `oled_off()` über das `g_oled_active`-Flag genau einmal
 aufgerufen (Vext + Display aus): am fliegenden Ballon ist ein aktives Display
 unnötiger Stromverbrauch. Die Zeilen-Formatierung
@@ -258,7 +256,7 @@ Record) ist die Testabsicherung.
 
 ```mermaid
 flowchart LR
-    R["TelemetryRecord<br/>{t_ms, utc, phase, fix_q, has_fix,<br/>lat, lon, alt, sats, BMP...}"]
+    R["TelemetryRecord<br/>{t_ms, utc, phase, fix_q, has_fix,<br/>lat, lon, alt, sats, BME...}"]
     R -->|csv_row| LINE["CSV-Zeile<br/>'12345,12:35:19,ASCENT,1,48.1,11.5,530.0,7,...'"]
     LINE -->|parse_csv_row| R2["TelemetryRecord<br/>(identisch)"]
 
@@ -291,13 +289,14 @@ absolute, neustartfeste Zeit zur Verfügung — das macht einen `t_ms`-Rückspru
 harmlos und erlaubt den Abgleich von SD-Log, Empfangs-Log und Action-Cam über
 die Uhrzeit.
 
-**Warum ein gemeinsames `has_bmp`-Flag für drei Spalten?** `temp_c`,
-`pressure_hpa` und `alt_baro_m` stammen aus demselben BMP280-Lesezyklus — fehlt
-der Sensor (nicht bestückt, I²C-Fehler), fehlen zwangsläufig alle drei, also
-genügt ein gemeinsames Flag statt dreier einzelner. Der Record speichert dabei
-bewusst die fertig umgerechneten, menschenlesbaren Größen (°C, hPa, m), nicht
-die Bosch-Rohwerte — die eigentliche Umrechnung übernimmt `lib/telemetry/bmp280`
-(siehe unten), aufgerufen von `src/flight`.
+**Warum ein gemeinsames `has_bme`-Flag für vier Spalten?** `temp_c`,
+`pressure_hpa`, `alt_baro_m` und `humidity_pct` stammen aus demselben
+BME280-Lesezyklus — fehlt der Sensor (nicht bestückt, I²C-Fehler), fehlen
+zwangsläufig alle vier, also genügt ein gemeinsames Flag statt vier einzelner.
+Anders als beim ursprünglich geplanten BMP280 übernimmt hier bewusst **nicht**
+`lib/telemetry` die Umrechnung, sondern die Adafruit-BME280-Bibliothek direkt
+in `src/flight/bme_sensor` — eine bewusste Abweichung von der sonstigen
+Hardware-frei-Regel (siehe `docs/superpowers/specs/2026-07-05-bme280-umbau-design.md`).
 
 **Warum vier einzelne `*_ok`-Flags in `DisplayState` statt eines CSV-Felds?**
 Der Sensorstatus in der OLED-Zeile ist reine **Boden-Diagnose** („ist der
@@ -320,9 +319,8 @@ fest benannten Sensoren bleibt (YAGNI).
 | NMEA-Parser (GPS-Rohdaten → Record) | `lib/telemetry/gga` | ✅ nativ getestet |
 | NMEA-Zeilen-Assembler | `lib/telemetry/line_assembler` | ✅ nativ getestet |
 | GPS-Pipeline in loop() | `src/flight/main.cpp` | 🔶 geschrieben, Board-Test offen |
-| BMP280-Umrechnung (ADC → °C/Pa/Höhe) | `lib/telemetry/bmp280` | ✅ nativ getestet |
-| BMP280-CSV-Spalten (temp_c, pressure_hpa, alt_baro_m) | `lib/telemetry/record` | ✅ nativ getestet |
-| BMP280-I²C-Anbindung (Register lesen, in loop() verdrahten) | `src/flight/` | ⬜ |
+| BME280-CSV-Spalten (temp_c, pressure_hpa, alt_baro_m, humidity_pct) | `lib/telemetry/record` | ✅ nativ getestet |
+| BME280-I²C-Anbindung (Adafruit-Lib, in loop() verdrahtet) | `src/flight/bme_sensor` + `main.cpp` | 🔶 geschrieben, Board-Test offen |
 | Sensor-Lesung MPU-6050, DS18B20, UV | `src/flight/` + Umrechnung in `lib/` | ⬜ |
 | microSD-Logging | `src/flight/sd_log` | 🔶 geschrieben, Board-Test offen |
 | OLED-Boden-Check: Zeilen-Formatierung (inkl. Sensorstatuszeile) | `lib/telemetry/display_status` | ✅ nativ getestet |
@@ -362,30 +360,30 @@ von `has_fix`; `record.cpp` schreibt sie als eigene CSV-Spalte `utc` im Format
 `docs/superpowers/specs/2026-07-04-gps-pipeline-integration-design.md`,
 Abschnitt „Zeit & Synchronisierung".
 
-Die **BMP280-Umrechnung** (`lib/telemetry/bmp280`) ist jetzt **fertig und nativ
-getestet**: die Bosch-Integer-Kompensationsformel (32-bit-Variante, Datenblatt
-Rev. 1.26) rechnet die rohen ADC-Werte + Kalibrierkonstanten in Temperatur
-(0,01 °C-Schritte) und Druck (Pa) um; dazu die internationale barometrische
-Höhenformel mit QNH als Parameter. Referenzwerte wurden mangels Rechenbeispiel
-im Datenblatt selbst durchgerechnet und gegen zitierte Community-Konstanten
-gegengeprüft (`docs/superpowers/specs/2026-07-04-bmp280-umrechnung-design.md`).
-Der `TelemetryRecord` trägt die drei neuen Spalten `temp_c,pressure_hpa,
-alt_baro_m` (CSV jetzt 11 statt 7 Spalten, inkl. der parallel entstandenen
-`fix_q`-Spalte). Offen ist noch die **I²C-Anbindung am Board**: Kalibrier-
-register lesen, ADC-Rohwerte holen, `bmp280_compensate_*` aufrufen und das
-Ergebnis in den Record kopieren — das lebt in `src/flight` und ist der nächste
-Schritt, um den `READ_SENS`-Knoten im `loop()`-Diagramm von ⬜ auf 🔶 zu heben.
+Der tatsächlich verbaute Sensor ist ein **BME280** (nicht der bisher
+dokumentierte BMP280) — inklusive Luftfeuchtigkeit. Der Umbau ist umgesetzt:
+`TelemetryRecord` trägt jetzt `has_bme` + die vier Spalten
+`temp_c,pressure_hpa,alt_baro_m,humidity_pct` (CSV jetzt 12 statt 11 Spalten).
+Anders als beim GPS/Flugphasen-Code wird die Sensor-Umrechnung hier **bewusst
+nicht** hardware-frei nachgebaut, sondern über die fertige Adafruit-BME280-
+Bibliothek gelesen (`src/flight/bme_sensor`, I2C-Adresse fest `0x76`, QNH fest
+1013,25 hPa) — das alte, native `lib/telemetry/bmp280`-Modul wurde ersatzlos
+gelöscht (Details und Begründung:
+`docs/superpowers/specs/2026-07-05-bme280-umbau-design.md`). `main.cpp` ruft
+`bme_begin()` in `setup()` und `bme_read()` pro GGA-Zeile in `loop()` auf; der
+Flight-Build kompiliert fehlerfrei, das Laufzeitverhalten ist aber **noch
+nicht am echten Board verifiziert** (🔶) — nächster Punkt der TODO-
+Testreihenfolge.
 
 Der nächste offene, rein testbare `lib`-Baustein sind die **MPU-6050-Rohwert-
 Umrechnungen** (→ °/s und g).
 
 Der **OLED-Boden-Check** zeigt jetzt zusätzlich eine **Sensorstatuszeile**
 (`lib/telemetry/display_status`, fertig und nativ getestet, 9 Tests grün):
-`DisplayState` trägt vier unabhängige `bool`-Flags (`bmp_ok`, `mpu_ok`,
+`DisplayState` trägt vier unabhängige `bool`-Flags (`bme_ok`, `mpu_ok`,
 `ds18b20_ok`, `uv_ok`), `status_lines()` fasst sie als fünfte Zeile in
 Kurzcodes zusammen (`B:ok M:-- D:-- U:--`) — siehe
-`docs/superpowers/specs/2026-07-04-oled-sensorstatus-design.md`. Offen ist das
-Befüllen dieser vier Flags in `src/flight/main.cpp`: `bmp_ok` könnte aus
-`g_rec.has_bmp` abgeleitet werden, sobald die BMP280-I²C-Anbindung steht;
+`docs/superpowers/specs/2026-07-04-oled-sensorstatus-design.md`. `bme_ok` wird
+jetzt in `src/flight/main.cpp` aus dem Rückgabewert von `bme_begin()` befüllt;
 `mpu_ok`/`ds18b20_ok`/`uv_ok` bleiben fest `false`, bis die jeweiligen Sensoren
 überhaupt gelesen werden (siehe §6, MPU-6050/DS18B20/UV weiterhin ⬜).
