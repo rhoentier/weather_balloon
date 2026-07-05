@@ -165,61 +165,62 @@ void test_roundtrip_without_utc() {
     TEST_ASSERT_FALSE(out.has_utc);
 }
 
-// Falsche Spaltenzahl (7 statt 10) -> abgelehnt.
+// Falsche Spaltenzahl (8 statt 12) -> abgelehnt.
 void test_wrong_column_count_rejected() {
     TelemetryRecord out;
-    // alte 7-Spalten-Zeile ohne BMP-Felder
-    TEST_ASSERT_FALSE(parse_csv_row("123,,PREFLIGHT,,,,", out));
+    TEST_ASSERT_FALSE(parse_csv_row("123,,PREFLIGHT,,,,,,", out));
 }
 
-// Header endet mit den drei BMP280-Spalten in fester Reihenfolge.
-void test_header_ends_with_bmp_columns() {
+// Header endet mit den vier BME280-Spalten in fester Reihenfolge.
+void test_header_ends_with_bme_columns() {
     std::string h = csv_header();
-    std::string suffix = "temp_c,pressure_hpa,alt_baro_m";
+    std::string suffix = "temp_c,pressure_hpa,alt_baro_m,humidity_pct";
     TEST_ASSERT_TRUE(h.size() >= suffix.size());
     TEST_ASSERT_EQUAL_STRING(suffix.c_str(),
                              h.substr(h.size() - suffix.size()).c_str());
 }
 
-// Ohne BMP-Sensor bleiben die drei Spalten leer (kein 0.0 vortäuschen).
-void test_row_without_bmp_has_empty_fields() {
+// Ohne BME-Sensor bleiben die vier Spalten leer (kein 0.0 vortäuschen).
+void test_row_without_bme_has_empty_fields() {
     TelemetryRecord r;
     r.t_ms = 1;
-    r.has_bmp = false;
+    r.has_bme = false;
     std::string row = csv_row(r);
-    // Zeile endet mit drei leeren Feldern: ",,"  (temp, pressure, alt)
-    TEST_ASSERT_EQUAL_STRING(",,",
-                             row.substr(row.size() - 2).c_str());
+    // Zeile endet mit vier leeren Feldern: ",,,"  (temp, pressure, alt, humidity)
+    TEST_ASSERT_EQUAL_STRING(",,,",
+                             row.substr(row.size() - 3).c_str());
 }
 
-// Round-Trip MIT BMP-Werten.
-void test_roundtrip_with_bmp() {
+// Round-Trip MIT BME-Werten (inkl. Luftfeuchte).
+void test_roundtrip_with_bme() {
     TelemetryRecord in;
     in.t_ms = 3000;
     in.phase = Phase::Ascent;
-    in.has_bmp = true;
+    in.has_bme = true;
     in.temp_c = 25.08f;
     in.pressure_hpa = 1006.56f;
     in.alt_baro_m = 55.85f;
+    in.humidity_pct = 47.3f;
 
     TelemetryRecord out;
     TEST_ASSERT_TRUE(parse_csv_row(csv_row(in), out));
-    TEST_ASSERT_TRUE(out.has_bmp);
+    TEST_ASSERT_TRUE(out.has_bme);
     TEST_ASSERT_FLOAT_WITHIN(0.05f, in.temp_c, out.temp_c);
     TEST_ASSERT_FLOAT_WITHIN(0.05f, in.pressure_hpa, out.pressure_hpa);
     TEST_ASSERT_FLOAT_WITHIN(0.05f, in.alt_baro_m, out.alt_baro_m);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, in.humidity_pct, out.humidity_pct);
 }
 
-// Round-Trip OHNE BMP -> has_bmp false zurück.
-void test_roundtrip_without_bmp() {
+// Round-Trip OHNE BME -> has_bme false zurück.
+void test_roundtrip_without_bme() {
     TelemetryRecord in;
     in.t_ms = 4000;
-    in.has_bmp = false;
+    in.has_bme = false;
 
     TelemetryRecord out;
-    out.has_bmp = true;  // bewusst vorbelegen, muss überschrieben werden
+    out.has_bme = true;  // bewusst vorbelegen, muss überschrieben werden
     TEST_ASSERT_TRUE(parse_csv_row(csv_row(in), out));
-    TEST_ASSERT_FALSE(out.has_bmp);
+    TEST_ASSERT_FALSE(out.has_bme);
 }
 
 // Header führt fix_q direkt nach phase (vor lat).
@@ -271,9 +272,9 @@ int main(int, char**) {
     RUN_TEST(test_header_has_fix_quality_after_phase);
     RUN_TEST(test_row_writes_fix_quality);
     RUN_TEST(test_roundtrip_fix_quality);
-    RUN_TEST(test_header_ends_with_bmp_columns);
-    RUN_TEST(test_row_without_bmp_has_empty_fields);
-    RUN_TEST(test_roundtrip_with_bmp);
-    RUN_TEST(test_roundtrip_without_bmp);
+    RUN_TEST(test_header_ends_with_bme_columns);
+    RUN_TEST(test_row_without_bme_has_empty_fields);
+    RUN_TEST(test_roundtrip_with_bme);
+    RUN_TEST(test_roundtrip_without_bme);
     return UNITY_END();
 }

@@ -32,7 +32,7 @@ static std::vector<std::string> split(const std::string& line) {
 // REIHENFOLGE der Spalten muss in header / row / parse identisch sein.
 
 std::string csv_header() {
-    return "t_ms,utc,phase,fix_q,lat,lon,alt_gps_m,sats,temp_c,pressure_hpa,alt_baro_m";
+    return "t_ms,utc,phase,fix_q,lat,lon,alt_gps_m,sats,temp_c,pressure_hpa,alt_baro_m,humidity_pct";
 }
 
 std::string csv_row(const TelemetryRecord& r) {
@@ -62,13 +62,14 @@ std::string csv_row(const TelemetryRecord& r) {
         s += ",,,";  // lat, lon, alt_gps_m, sats alle leer
     }
     s += ',';
-    // BMP280: nur bei bestücktem Sensor Werte, sonst drei leere Felder.
-    if (r.has_bmp) {
+    // BME280: nur bei bestücktem Sensor Werte, sonst vier leere Felder.
+    if (r.has_bme) {
         s += num(r.temp_c, 2);       s += ',';
         s += num(r.pressure_hpa, 2); s += ',';
-        s += num(r.alt_baro_m, 2);
+        s += num(r.alt_baro_m, 2);   s += ',';
+        s += num(r.humidity_pct, 2);
     } else {
-        s += ",,";  // temp_c, pressure_hpa, alt_baro_m alle leer
+        s += ",,,";  // temp_c, pressure_hpa, alt_baro_m, humidity_pct alle leer
     }
     return s;
 }
@@ -76,7 +77,7 @@ std::string csv_row(const TelemetryRecord& r) {
 bool parse_csv_row(const std::string& line, TelemetryRecord& out) {
     if (line.empty()) return false;
     auto f = split(line);
-    if (f.size() != 11) return false;          // Spaltenzahl muss passen
+    if (f.size() != 12) return false;          // Spaltenzahl muss passen
     if (f[0].empty()) return false;           // t_ms ist Pflicht
 
     out = TelemetryRecord{};                  // sauber zurücksetzen
@@ -111,12 +112,13 @@ bool parse_csv_row(const std::string& line, TelemetryRecord& out) {
         if (!f[6].empty()) out.alt_gps_m = static_cast<float>(std::strtod(f[6].c_str(), nullptr));
         if (!f[7].empty()) out.sats = static_cast<uint8_t>(std::strtoul(f[7].c_str(), nullptr, 10));
     }
-    // BMP280 (Felder [8]/[9]/[10]): gilt als vorhanden, wenn temp_c befüllt ist.
+    // BME280 (Felder [8]/[9]/[10]/[11]): gilt als vorhanden, wenn temp_c befüllt ist.
     if (!f[8].empty()) {
-        out.has_bmp = true;
+        out.has_bme = true;
         out.temp_c = static_cast<float>(std::strtod(f[8].c_str(), nullptr));
-        if (!f[9].empty()) out.pressure_hpa = static_cast<float>(std::strtod(f[9].c_str(), nullptr));
+        if (!f[9].empty())  out.pressure_hpa = static_cast<float>(std::strtod(f[9].c_str(), nullptr));
         if (!f[10].empty()) out.alt_baro_m   = static_cast<float>(std::strtod(f[10].c_str(), nullptr));
+        if (!f[11].empty()) out.humidity_pct = static_cast<float>(std::strtod(f[11].c_str(), nullptr));
     }
     return true;
 }
