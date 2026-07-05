@@ -27,15 +27,14 @@ pio --version
 
 ---
 
-## Die drei Environments
+## Die zwei Environments
 
-Ein Repo, drei Ziele (definiert in `platformio.ini`):
+Ein Repo, zwei Ziele (definiert in `platformio.ini`):
 
 | Environment | Ziel | Board |
 |---|---|---|
 | `flight`  | Firmware der **Flug-Einheit**   | Heltec WiFi LoRa 32 **V2** |
 | `ground`  | Firmware der **Bodenstation**   | Heltec WiFi LoRa 32 **V3** |
-| `native`  | **Unit-Tests** auf dem Mac      | kein Board — läuft lokal |
 
 `-e <name>` wählt das Environment aus. Ohne `-e` wird `flight` genommen
 (`default_envs`).
@@ -43,15 +42,6 @@ Ein Repo, drei Ziele (definiert in `platformio.ini`):
 ---
 
 ## Die wichtigsten Befehle
-
-### Unit-Tests auf dem Mac (kein Board nötig)
-
-Der schnellste Weg, die hardware-freie Logik (`lib/telemetry/`) zu prüfen.
-Läuft in Millisekunden, ganz ohne angeschlossenen ESP32:
-
-```bash
-pio test -e native
-```
 
 ### Flug-Firmware kompilieren
 
