@@ -23,8 +23,8 @@ Detaillierter Umsetzungsplan auf Basis des Konzepts. Inhalt:
 - [x] **Pinbelegung / Verdrahtung** am Heltec V2 (freie GPIOs aus Pinout; UART für GPS, SPI für SD, I²C, 1-Wire, ADC1 für UV — LoRa & OLED sind board-intern belegt)
   → `docs/superpowers/specs/2026-06-27-pinbelegung-heltec-v2.md`
 - [ ] **Software-Module** definieren:
-  - [x] GPS-Init inkl. Flight-Mode 6 (kritisch!) — Logik (`lib/telemetry/ubx`) nativ
-        getestet, Sende-Code (`src/flight/gps_flightmode`) geschrieben; **Board-Verifikation offen**
+  - [x] GPS-Init inkl. Flight-Mode 6 (kritisch!) — Logik (`lib/telemetry/ubx`) +
+        Sende-Code (`src/flight/gps_flightmode`); **am NEO-6M verifiziert (UBX-ACK kommt zurück)**
   - [ ] Sensor-Lesung + Auto-Detect (I²C-Scan)
   - [ ] Datensatz-Bau + CSV-Logging auf microSD — CSV-Format (`lib/telemetry/record`)
         nativ getestet; SD-Schreiben (`src/flight`) noch offen
@@ -34,7 +34,7 @@ Detaillierter Umsetzungsplan auf Basis des Konzepts. Inhalt:
   - [ ] Watchdog / Robustheit
 - [ ] **Bodenstations-Software** (Empfänger-Firmware + Laptop-Anzeige)
 - [ ] **Testreihenfolge** festlegen:
-  - [ ] GPS-Flight-Mode am Boden verifizieren
+  - [x] GPS-Flight-Mode am Boden verifizieren — UBX-ACK kommt am NEO-6M zurück (Crossover TX↔RX)
   - [ ] LoRa-Reichweitentest
   - [ ] microSD-Modul am Heltec: 3,3 V vs. 5 V testen, Schreiben/Lesen verifizieren (FAT32-Karte)
   - [ ] **⚠️ Batteriespannung messen** (4× Lithium-AA frisch + unter Last + kalt) → muss am 5V-Pin
@@ -51,7 +51,7 @@ Detaillierter Umsetzungsplan auf Basis des Konzepts. Inhalt:
 ## ⬜ Schritt 3 — Hardware bestellen & aufbauen
 
 - [x] Kern gekauft: Heltec WiFi LoRa 32 V2 + NEO-6M (GPS)
-- [x] Sensoren gekauft: BME280, MPU-6050, DS18B20, GUVA-S12SD, microSD-Modul + Karte
+- [x] Sensoren gekauft: BMP280 (als „BME280" verkauft, Chip-ID 0x58), MPU-6050, DS18B20, GUVA-S12SD, microSD-Modul + Karte
 - [x] Strom gekauft: 4× Energizer Ultimate Lithium AA + Halter
 - [x] Kleinteile gekauft: Kabel, Stiftleisten, Kondensatoren
 - [x] **Action-Cam besorgen** (leicht ~50–70 g; Laufzeit + Kälte vorab prüfen)

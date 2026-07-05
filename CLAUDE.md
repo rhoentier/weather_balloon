@@ -61,8 +61,8 @@ als Code in `src/flight/pins.h`. Kurz:
 
 | Funktion | GPIO | |
 |---|---|---|
-| GPS NEO-6M | RX **23**, TX **17** | UART2, 9600 Baud. TX ist Pflicht (Flight-Mode!) |
-| BME280 + MPU-6050 | SDA **4**, SCL **15** | I²C, geteilt mit OLED |
+| GPS NEO-6M | RX **23**, TX **17** | UART2, 9600 Baud. Gekreuzt (TX↔RX). TX ist Pflicht (Flight-Mode!) |
+| BMP280 + MPU-6050 | SDA **4**, SCL **15** | I²C, geteilt mit OLED |
 | DS18B20 | **22** | 1-Wire, 4,7 kΩ Pull-up nach 3V3 |
 | GUVA-S12SD (UV) | **36** | ADC1, input-only |
 | microSD | CS **13** | SPI, Bus mit LoRa geteilt (SCK5/MISO19/MOSI27) |
@@ -145,8 +145,8 @@ beim Einlesen die Spalten nicht mehr zusammen (z.B. Spaltenzahl-Mismatch).
 ## Stand & Nächstes
 
 Fertig: Flugphasen, GPS-Flight-Mode-Logik, CSV-Format. GPS-Flight-Mode-Senden
-(`src/flight`) ist geschrieben, aber **noch nicht am echten NEO-6M verifiziert**
-(erster Punkt der TODO-Testreihenfolge).
+(`src/flight`) ist **am echten NEO-6M verifiziert** — mit gekreuzter UART-
+Verdrahtung (ESP32-TX 17 → GPS-RX, ESP32-RX 23 ← GPS-TX) kommt der UBX-ACK zurück.
 
 Offene Hardware-Tests siehe `TODO.md` (GPS-Flight-Mode am Boden, microSD 3,3/5 V,
 Batteriespannung, Kältetest, Reichweite, Generalprobe).
