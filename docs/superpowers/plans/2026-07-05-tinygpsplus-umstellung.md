@@ -183,7 +183,7 @@ static LineAssembler       g_asm;
 static TelemetryRecord     g_rec;
 static FlightPhaseDetector g_detector;
 static bool g_sd_ok       = false;  // Ergebnis von sd_log_begin(), fürs Display
-static bool g_bme_ok      = false;  // Ergebnis von bme_begin(), fürs Display
+static bool g_bmp_ok      = false;  // Ergebnis von bmp_begin(), fürs Display
 static bool g_gps_seen    = false;  // schon je eine GGA geparst? (GPS-Stufe)
 static bool g_oled_active = true;   // Display läuft, bis PreFlight verlassen wird
 static uint32_t g_last_oled_ms = 0;              // letzte OLED-Aktualisierung
@@ -194,7 +194,7 @@ ersetzen durch:
 static TelemetryRecord     g_rec;
 static FlightPhaseDetector g_detector;
 static bool g_sd_ok       = false;  // Ergebnis von sd_log_begin(), fürs Display
-static bool g_bme_ok      = false;  // Ergebnis von bme_begin(), fürs Display
+static bool g_bmp_ok      = false;  // Ergebnis von bmp_begin(), fürs Display
 static bool g_oled_active = true;   // Display läuft, bis PreFlight verlassen wird
 static uint32_t g_last_oled_ms = 0;              // letzte OLED-Aktualisierung
 static const uint32_t OLED_REFRESH_MS = 500;     // OLED höchstens alle 500 ms neu zeichnen
@@ -254,7 +254,7 @@ Diesen Block:
             g_rec.phase = g_detector.phase();  // ohne Fix letzte Phase halten
         }
 
-        bme_read(g_rec);
+        bmp_read(g_rec);
 
         String csv = csv_row(g_rec).c_str();
         Serial.println(csv);
@@ -279,7 +279,7 @@ ersetzen durch:
             g_rec.phase = g_detector.phase();  // ohne Fix letzte Phase halten
         }
 
-        bme_read(g_rec);
+        bmp_read(g_rec);
 
         String csv = csv_row(g_rec).c_str();
         Serial.println(csv);
@@ -303,7 +303,7 @@ ersetzen durch:
             ds.gps   = gps_display_state();
             ds.sats  = g_rec.sats;
 ```
-(Der Rest des OLED-Blocks — `ds.sd_ok`, `ds.bme_ok`, `ds.phase`, `oled_show`,
+(Der Rest des OLED-Blocks — `ds.sd_ok`, `ds.bmp_ok`, `ds.phase`, `oled_show`,
 `oled_off` — bleibt unverändert.)
 
 - [ ] **Step 5: Kompilieren**
