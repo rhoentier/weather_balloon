@@ -19,15 +19,19 @@ namespace telemetry {
 //   Fix     = Fix vorhanden (sats gültig)
 enum class GpsDisp { Silent, Waiting, Fix };
 
+// Alle Flags mit Default false vorbelegt: main.cpp setzt aktuell nur die
+// befüllbaren (sd_ok, bme_ok, gps, sats, phase); mpu_ok/ds18b20_ok/uv_ok
+// bleiben so definiert false, statt bei uninitialisiertem Aggregat zufällig
+// „ok"/„--" auf dem OLED zu zeigen (Konvention wie TelemetryRecord in record.h).
 struct DisplayState {
-    GpsDisp gps;
-    uint8_t sats;
-    bool    sd_ok;
-    Phase   phase;
-    bool    bme_ok;      // BME280 ok?
-    bool    mpu_ok;      // MPU-6050 ok?
-    bool    ds18b20_ok;  // DS18B20 ok?
-    bool    uv_ok;       // GUVA-S12SD (UV) ok?
+    GpsDisp gps        = GpsDisp::Silent;
+    uint8_t sats       = 0;
+    bool    sd_ok      = false;
+    Phase   phase      = Phase::PreFlight;
+    bool    bme_ok     = false;  // BME280 ok?
+    bool    mpu_ok     = false;  // MPU-6050 ok?
+    bool    ds18b20_ok = false;  // DS18B20 ok?
+    bool    uv_ok      = false;  // GUVA-S12SD (UV) ok?
 };
 
 // Anzuzeigende Zeilen. Reihenfolge = Layout-Kontrakt:
