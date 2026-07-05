@@ -1,18 +1,17 @@
 // main.cpp — Flug-Einheit (Heltec WiFi LoRa 32 V2)
 //
 // Stand: GPS-Pipeline. setup() setzt GPS-Flight-Mode + initialisiert SD.
-// loop() liest den GPS-UART, baut pro GGA-Satz eine Telemetrie-CSV-Zeile
-// (parse_gga -> TelemetryRecord -> Flugphase -> csv_row) und schreibt sie auf
-// Serial und microSD. Testbare Logik lebt in lib/telemetry (nativ getestet).
+// loop() füttert den GPS-UART laufend an TinyGPSPlus (gps_reader) und schreibt
+// einmal pro Sekunde eine Telemetrie-CSV-Zeile aus dem aktuellen GPS-Zustand
+// (gps_fill -> TelemetryRecord -> Flugphase -> csv_row) auf Serial und microSD.
 
 #include <Arduino.h>
 #include <Wire.h>
 #include "pins.h"
 #include "gps_flightmode.h"
 #include "sd_log.h"
+#include "gps_reader.h"
 
-#include "line_assembler.h"
-#include "gga.h"
 #include "record.h"
 #include "flight_phase.h"
 #include "oled.h"
@@ -22,16 +21,16 @@
 
 using namespace telemetry;
 
-static LineAssembler       g_asm;
 static TelemetryRecord     g_rec;
 static FlightPhaseDetector g_detector;
 static bool g_sd_ok       = false;  // Ergebnis von sd_log_begin(), fürs Display
 static bool g_bmp_ok      = false;  // Ergebnis von bmp_begin(), fürs Display
 static bool g_ds_ok       = false;  // Ergebnis von ds_begin(), fürs Display
-static bool g_gps_seen    = false;  // schon je eine GGA geparst? (GPS-Stufe)
 static bool g_oled_active = true;   // Display läuft, bis PreFlight verlassen wird
 static uint32_t g_last_oled_ms = 0;              // letzte OLED-Aktualisierung
 static const uint32_t OLED_REFRESH_MS = 500;     // OLED höchstens alle 500 ms neu zeichnen
+static uint32_t g_last_log_ms = 0;               // letzte CSV-Zeile geschrieben
+static const uint32_t LOG_INTERVAL_MS = 1000;    // eine CSV-Zeile pro Sekunde (1 Hz)
 
 void setup() {
     Serial.begin(115200);
@@ -91,30 +90,18 @@ void setup() {
 }
 
 void loop() {
-    while (Serial2.available()) {
-        char c = static_cast<char>(Serial2.read());
-        std::string line;
-        if (!g_asm.push(c, line)) continue;
+    // GPS laufend füttern (nicht-blockierend): TinyGPSPlus sammelt + parst.
+    gps_feed(Serial2);
 
-        GpsFix fix;
-        if (!parse_gga(line, fix)) continue;   // Nicht-GGA / kaputt -> überspringen
+    // Zeitgesteuert: einmal pro Sekunde eine CSV-Zeile aus dem aktuellen Zustand.
+    if (millis() - g_last_log_ms >= LOG_INTERVAL_MS) {
+        g_last_log_ms = millis();
 
-        g_gps_seen = true;
+        g_rec.t_ms = millis();
+        gps_fill(g_rec);   // GPS-Felder aus TinyGPSPlus in den Record
 
-        g_rec.t_ms      = millis();
-        g_rec.has_utc   = fix.has_utc;
-        g_rec.utc_h     = fix.utc_h;
-        g_rec.utc_min   = fix.utc_min;
-        g_rec.utc_s     = fix.utc_s;
-        g_rec.has_fix     = fix.has_fix;
-        g_rec.fix_quality = fix.fix_quality;
-        g_rec.lat       = fix.lat;
-        g_rec.lon       = fix.lon;
-        g_rec.alt_gps_m = fix.alt_gps_m;
-        g_rec.sats      = fix.sats;
-
-        if (fix.has_fix) {
-            g_rec.phase = g_detector.update(fix.alt_gps_m, g_rec.t_ms);
+        if (g_rec.has_fix) {
+            g_rec.phase = g_detector.update(g_rec.alt_gps_m, g_rec.t_ms);
         } else {
             g_rec.phase = g_detector.phase();  // ohne Fix letzte Phase halten
         }
@@ -134,9 +121,7 @@ void loop() {
         g_last_oled_ms = millis();
         if (g_detector.phase() == Phase::PreFlight) {
             DisplayState ds;
-            ds.gps   = g_rec.has_fix ? GpsDisp::Fix
-                     : g_gps_seen    ? GpsDisp::Waiting
-                                     : GpsDisp::Silent;
+            ds.gps   = gps_display_state();
             ds.sats  = g_rec.sats;
             ds.sd_ok = g_sd_ok;
             ds.bmp_ok = g_bmp_ok;
