@@ -65,8 +65,13 @@ void setup() {
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL); // 4 / 15
 
     g_bmp_ok = bmp_begin();
-    Serial.println(g_bmp_ok ? "[flight] BMP280 gefunden (0x76)"
-                             : "[flight] !!! BMP280 NICHT gefunden (0x76) !!!");
+    if (g_bmp_ok) {
+        Serial.print("[flight] BMP280 gefunden (0x76), Höhen-Referenz = ");
+        Serial.print(bmp_reference_hpa(), 2);
+        Serial.println(" hPa (Startort)");
+    } else {
+        Serial.println("[flight] !!! BMP280 NICHT gefunden (0x76) !!!");
+    }
 
     // CSV-Kopfzeile einmal auf Serial ausgeben (Orientierung im Monitor).
     Serial.println(csv_header().c_str());
