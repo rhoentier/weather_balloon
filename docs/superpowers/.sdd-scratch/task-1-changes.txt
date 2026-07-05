@@ -1,0 +1,116 @@
+===== FILE: lib/telemetry/bmp280.h =====
+     1	// bmp280.h — BMP280-Umrechnung: Rohwerte + Kalibrierung -> physikalische Größen.
+     2	//
+     3	// Hardware-frei (kein <Arduino.h>) -> nativ testbar. Kennt NUR den BMP280,
+     4	// nicht das CSV-Format und KEIN I²C. Der src/flight-Aufrufer liest per I²C die
+     5	// Kalibrierkonstanten (einmalig) und die Rohwerte (pro Zyklus) und ruft diese
+     6	// Funktionen. Formeln exakt nach BST-BMP280-DS001 Rev 1.26, 3.11.3 (32-bit).
+     7	
+     8	#ifndef TELEMETRY_BMP280_H
+     9	#define TELEMETRY_BMP280_H
+    10	
+    11	#include <cstdint>
+    12	
+    13	namespace telemetry {
+    14	
+    15	// Kalibrierkonstanten (Register 0x88..0x9F). Typen exakt nach Datenblatt
+    16	// (3.11.2) — Vorzeichen entscheidend, sonst grob falsche Werte!
+    17	struct Bmp280Calib {
+    18	    uint16_t dig_T1;
+    19	    int16_t  dig_T2, dig_T3;
+    20	    uint16_t dig_P1;
+    21	    int16_t  dig_P2, dig_P3, dig_P4, dig_P5,
+    22	             dig_P6, dig_P7, dig_P8, dig_P9;
+    23	};
+    24	
+    25	// adc_T = 20-bit-Rohwert (positiv, in 32-bit-signed). Rückgabe in 0,01 °C
+    26	// (2508 = 25,08 °C). Setzt t_fine (Zwischengröße für die Druckformel).
+    27	int32_t bmp280_compensate_temperature(int32_t adc_T, const Bmp280Calib& c,
+    28	                                       int32_t& t_fine);
+    29	
+    30	// adc_P = 20-bit-Rohwert. t_fine MUSS vorher von compensate_temperature stammen.
+    31	// Rückgabe in Pa direkt (100656 = 1006,56 hPa).
+    32	uint32_t bmp280_compensate_pressure(int32_t adc_P, const Bmp280Calib& c,
+    33	                                     int32_t t_fine);
+    34	
+    35	// Barometrische Höhe (m) aus Druck (Pa) + Referenzdruck QNH (Pa).
+    36	float bmp280_altitude_m(float pressure_pa, float sea_level_pa);
+    37	
+    38	} // namespace telemetry
+    39	
+    40	#endif // TELEMETRY_BMP280_H
+
+===== FILE: lib/telemetry/bmp280.cpp =====
+     1	// bmp280.cpp — BMP280-Umrechnung (siehe bmp280.h). Hardware-frei.
+     2	// Integer-Kompensation exakt nach BST-BMP280-DS001 Rev 1.26, 3.11.3.
+     3	
+     4	#include "bmp280.h"
+     5	
+     6	namespace telemetry {
+     7	
+     8	int32_t bmp280_compensate_temperature(int32_t adc_T, const Bmp280Calib& c,
+     9	                                       int32_t& t_fine) {
+    10	    int32_t var1 = ((((adc_T >> 3) - ((int32_t)c.dig_T1 << 1))) *
+    11	                    ((int32_t)c.dig_T2)) >> 11;
+    12	    int32_t var2 = (((((adc_T >> 4) - ((int32_t)c.dig_T1)) *
+    13	                      ((adc_T >> 4) - ((int32_t)c.dig_T1))) >> 12) *
+    14	                    ((int32_t)c.dig_T3)) >> 14;
+    15	    t_fine = var1 + var2;
+    16	    return (t_fine * 5 + 128) >> 8;
+    17	}
+    18	
+    19	} // namespace telemetry
+
+===== FILE: test/test_bmp280/test_bmp280.cpp =====
+     1	// test_bmp280.cpp — native Tests für die BMP280-Umrechnung.
+     2	//   pio test -e native
+     3	//
+     4	// Referenzwerte verifiziert aus dem Datenblatt-C-Code (BST-BMP280-DS001
+     5	// Rev 1.26, 3.11.3), NICHT aus dem Gedächtnis. Kalibriersatz + Ergebnisse:
+     6	//   adc_T=519888 -> t_fine=128422, T=2508 (25,08 °C)
+     7	//   adc_P=415148 -> 100656 Pa (1006,56 hPa)
+     8	
+     9	#include <unity.h>
+    10	#include "bmp280.h"
+    11	
+    12	using namespace telemetry;
+    13	
+    14	void setUp() {}
+    15	void tearDown() {}
+    16	
+    17	// Klassischer, in mehreren Bibliotheken zitierter Kalibriersatz.
+    18	static Bmp280Calib ref_calib() {
+    19	    Bmp280Calib c;
+    20	    c.dig_T1 = 27504;  c.dig_T2 = 26435;  c.dig_T3 = -1000;
+    21	    c.dig_P1 = 36477;  c.dig_P2 = -10685; c.dig_P3 = 3024;
+    22	    c.dig_P4 = 2855;   c.dig_P5 = 140;    c.dig_P6 = -7;
+    23	    c.dig_P7 = 15500;  c.dig_P8 = -14600; c.dig_P9 = 6000;
+    24	    return c;
+    25	}
+    26	
+    27	// Temperatur gegen den verifizierten Referenzwert (25,08 °C) + t_fine.
+    28	void test_temperature_reference() {
+    29	    Bmp280Calib c = ref_calib();
+    30	    int32_t t_fine = 0;
+    31	    int32_t T = bmp280_compensate_temperature(519888, c, t_fine);
+    32	    TEST_ASSERT_EQUAL_INT32(128422, t_fine);
+    33	    TEST_ASSERT_EQUAL_INT32(2508, T);   // 25,08 °C
+    34	}
+    35	
+    36	// Vorzeichen-Falle: negative Kalibrierkonstanten müssen als signed wirken.
+    37	// Würde dig_T3=-1000 fälschlich als uint16 (65536-1000) gelesen, käme ein
+    38	// grob anderer t_fine heraus -> dieser Test schlägt dann fehl.
+    39	void test_temperature_signed_calib() {
+    40	    Bmp280Calib c = ref_calib();
+    41	    int32_t t_fine = 0;
+    42	    bmp280_compensate_temperature(519888, c, t_fine);
+    43	    TEST_ASSERT_EQUAL_INT32(128422, t_fine);
+    44	}
+    45	
+    46	int main(int, char**) {
+    47	    UNITY_BEGIN();
+    48	    RUN_TEST(test_temperature_reference);
+    49	    RUN_TEST(test_temperature_signed_calib);
+    50	    return UNITY_END();
+    51	}
+
