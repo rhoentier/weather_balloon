@@ -17,6 +17,7 @@
 #include "flight_phase.h"
 #include "oled.h"
 #include "bmp_sensor.h"
+#include "ds18b20.h"
 #include "display_status.h"
 
 using namespace telemetry;
@@ -26,6 +27,7 @@ static TelemetryRecord     g_rec;
 static FlightPhaseDetector g_detector;
 static bool g_sd_ok       = false;  // Ergebnis von sd_log_begin(), fürs Display
 static bool g_bmp_ok      = false;  // Ergebnis von bmp_begin(), fürs Display
+static bool g_ds_ok       = false;  // Ergebnis von ds_begin(), fürs Display
 static bool g_gps_seen    = false;  // schon je eine GGA geparst? (GPS-Stufe)
 static bool g_oled_active = true;   // Display läuft, bis PreFlight verlassen wird
 static uint32_t g_last_oled_ms = 0;              // letzte OLED-Aktualisierung
@@ -73,6 +75,14 @@ void setup() {
         Serial.println("[flight] !!! BMP280 NICHT gefunden (0x76) !!!");
     }
 
+    // DS18B20 (Außentemperatur, 1-Wire an GPIO22).
+    g_ds_ok = ds_begin();
+    if (g_ds_ok) {
+        Serial.println("[flight] DS18B20 gefunden (1-Wire)");
+    } else {
+        Serial.println("[flight] !!! DS18B20 NICHT gefunden (1-Wire) !!!");
+    }
+
     // CSV-Kopfzeile einmal auf Serial ausgeben (Orientierung im Monitor).
     Serial.println(csv_header().c_str());
 
@@ -110,6 +120,7 @@ void loop() {
         }
 
         bmp_read(g_rec);
+        ds_update(g_rec);   // non-blocking: übernimmt Wert nur, wenn Wandlung fertig
 
         String csv = csv_row(g_rec).c_str();
         Serial.println(csv);
@@ -129,6 +140,7 @@ void loop() {
             ds.sats  = g_rec.sats;
             ds.sd_ok = g_sd_ok;
             ds.bmp_ok = g_bmp_ok;
+            ds.ds18b20_ok = g_ds_ok;
             ds.phase = g_detector.phase();
             oled_show(status_lines(ds));
         } else {

@@ -31,6 +31,7 @@ flowchart TB
         MAIN["main.cpp<br/>Setup + Loop"]
         GPSFM["gps_flightmode.cpp<br/>UBX senden + ACK lesen"]
         BMP["bmp_sensor.cpp<br/>I2C-Lesen via Adafruit-Lib (0x76)"]
+        DS["ds18b20.cpp<br/>1-Wire-Lesen, async (Außentemp.)"]
     end
 
     subgraph LIB["lib/telemetry/ — hardware-frei (nativ getestet ✅)"]
@@ -137,7 +138,7 @@ board-unverifiziert ist (gelb), und was noch fehlt (weiß).
 ```mermaid
 flowchart TD
     L([loop-Iteration]) --> READ_GPS["GPS lesen<br/>✅ LineAssembler + parse_gga → GpsFix"]
-    READ_GPS --> READ_SENS["Sensoren lesen (I²C/ADC)<br/>🔶 BMP280 verdrahtet (bmp_sensor, Board-Test offen), ⬜ MPU-6050, DS18B20, UV"]
+    READ_GPS --> READ_SENS["Sensoren lesen (I²C/1-Wire/ADC)<br/>🔶 BMP280 (bmp_sensor) + DS18B20 (ds18b20, async) verdrahtet, Board-Test offen; ⬜ MPU-6050, UV"]
 
     READ_SENS --> PHASE["Flugphase aktualisieren<br/>✅ FlightPhaseDetector.update(alt, t)"]
     PHASE --> BUILD["TelemetryRecord befüllen<br/>🔶 in main.cpp verdrahtet"]
@@ -190,7 +191,7 @@ Sensorstatus) — der „Startklar?"-Check ohne Laptop am Startort. Die fünfte
 Zeile fasst die vier Sensoren als Kurzcodes zusammen (`B:ok M:-- D:-- U:--` für
 BMP280/MPU-6050/DS18B20/UV) — `ok`, wenn das jeweilige `*_ok`-Flag im
 `DisplayState` gesetzt ist, sonst `--`. `src/flight/main.cpp` befüllt inzwischen
-`bmp_ok` aus dem Ergebnis von `bmp_begin()`; `mpu_ok`/`ds18b20_ok`/`uv_ok`
+`bmp_ok` aus `bmp_begin()` und `ds18b20_ok` aus `ds_begin()`; `mpu_ok`/`uv_ok`
 bleiben noch **unbefüllt** (⬜), bis die jeweilige Sensor-Anbindung steht. Beim ersten Übergang in
 `Ascent` wird `oled_off()` über das `g_oled_active`-Flag genau einmal
 aufgerufen (Vext + Display aus): am fliegenden Ballon ist ein aktives Display
@@ -298,6 +299,15 @@ in `src/flight/bmp_sensor` — eine bewusste Abweichung von der sonstigen
 Hardware-frei-Regel (der verbaute Chip ist ein BMP280, Chip-ID 0x58 am Board
 bestätigt — KEINE Luftfeuchte; siehe `docs/superpowers/specs/2026-07-05-bme280-umbau-design.md`).
 
+**Warum ein zweiter Temperatursensor (DS18B20) neben dem BMP280?** Der BMP280
+sitzt im Modul und misst dessen Eigenwärme mit; der DS18B20 hängt am Kabel außen
+und liefert die echte **Außentemperatur** (Spalte `temp_ext_c`, eigenes
+`has_ds`-Flag). Die Anbindung liegt — wie beim BMP280 — bewusst in `src/flight`
+(`ds18b20`), weil sie die DallasTemperature-Lib direkt nutzt. Gelesen wird
+**non-blocking**: eine 12-Bit-Wandlung dauert bis zu ~750 ms, was den GPS-UART-
+Loop blockieren würde. `ds_update()` stößt daher nur eine Wandlung an, holt den
+fertigen Wert beim nächsten Durchlauf ab und startet die nächste.
+
 **Warum vier einzelne `*_ok`-Flags in `DisplayState` statt eines CSV-Felds?**
 Der Sensorstatus in der OLED-Zeile ist reine **Boden-Diagnose** („ist der
 Sensor gerade ansprechbar?"), keine Telemetrie fürs CSV-Log — er gehört daher
@@ -321,7 +331,9 @@ fest benannten Sensoren bleibt (YAGNI).
 | GPS-Pipeline in loop() | `src/flight/main.cpp` | 🔶 geschrieben, Board-Test offen |
 | BMP280-CSV-Spalten (temp_c, pressure_hpa, alt_baro_m) | `lib/telemetry/record` | 🔶 umgesetzt |
 | BMP280-I²C-Anbindung (Adafruit-Lib, in loop() verdrahtet) | `src/flight/bmp_sensor` + `main.cpp` | 🔶 geschrieben, Board-Test offen |
-| Sensor-Lesung MPU-6050, DS18B20, UV | `src/flight/` + Umrechnung in `lib/` | ⬜ |
+| DS18B20-CSV-Spalte (temp_ext_c) | `lib/telemetry/record` | 🔶 umgesetzt |
+| DS18B20-1-Wire-Anbindung (async, in loop() verdrahtet) | `src/flight/ds18b20` + `main.cpp` | 🔶 geschrieben, Board-Test offen |
+| Sensor-Lesung MPU-6050, UV | `src/flight/` + Umrechnung in `lib/` | ⬜ |
 | microSD-Logging | `src/flight/sd_log` | 🔶 geschrieben, Board-Test offen |
 | OLED-Boden-Check: Zeilen-Formatierung (inkl. Sensorstatuszeile) | `lib/telemetry/display_status` | ✅ nativ getestet |
 | OLED-Sensorstatus: main.cpp befüllt `*_ok`-Flags | `src/flight/main.cpp` | ⬜ |

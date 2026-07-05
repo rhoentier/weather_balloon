@@ -49,6 +49,12 @@ struct TelemetryRecord {
     float temp_c = 0.0f;        // °C
     float pressure_hpa = 0.0f;  // hPa
     float alt_baro_m = 0.0f;    // barometrische Höhe (m), aus Druck + QNH
+
+    // --- DS18B20 (Außentemperatur, 1-Wire) ---
+    // Echte Umgebungstemperatur — anders als der BMP280, der im Modul sitzt und
+    // sich selbst erwärmt.
+    bool  has_ds = false;
+    float temp_ext_c = 0.0f;    // °C
 };
 
 // Kopfzeile mit Spaltennamen (ohne Zeilenende). Reihenfolge == csv_row().

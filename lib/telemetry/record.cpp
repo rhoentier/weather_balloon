@@ -32,7 +32,7 @@ static std::vector<std::string> split(const std::string& line) {
 // REIHENFOLGE der Spalten muss in header / row / parse identisch sein.
 
 std::string csv_header() {
-    return "t_ms,utc,phase,fix_q,lat,lon,alt_gps_m,sats,temp_c,pressure_hpa,alt_baro_m";
+    return "t_ms,utc,phase,fix_q,lat,lon,alt_gps_m,sats,temp_c,pressure_hpa,alt_baro_m,temp_ext_c";
 }
 
 std::string csv_row(const TelemetryRecord& r) {
@@ -70,13 +70,18 @@ std::string csv_row(const TelemetryRecord& r) {
     } else {
         s += ",,";  // temp_c, pressure_hpa, alt_baro_m alle leer
     }
+    s += ',';
+    // DS18B20: nur bei bestücktem Sensor ein Wert, sonst leeres Feld.
+    if (r.has_ds) {
+        s += num(r.temp_ext_c, 2);
+    }
     return s;
 }
 
 bool parse_csv_row(const std::string& line, TelemetryRecord& out) {
     if (line.empty()) return false;
     auto f = split(line);
-    if (f.size() != 11) return false;          // Spaltenzahl muss passen
+    if (f.size() != 12) return false;          // Spaltenzahl muss passen
     if (f[0].empty()) return false;           // t_ms ist Pflicht
 
     out = TelemetryRecord{};                  // sauber zurücksetzen
@@ -117,6 +122,11 @@ bool parse_csv_row(const std::string& line, TelemetryRecord& out) {
         out.temp_c = static_cast<float>(std::strtod(f[8].c_str(), nullptr));
         if (!f[9].empty())  out.pressure_hpa = static_cast<float>(std::strtod(f[9].c_str(), nullptr));
         if (!f[10].empty()) out.alt_baro_m   = static_cast<float>(std::strtod(f[10].c_str(), nullptr));
+    }
+    // DS18B20 (Feld [11]): gilt als vorhanden, wenn befüllt.
+    if (!f[11].empty()) {
+        out.has_ds = true;
+        out.temp_ext_c = static_cast<float>(std::strtod(f[11].c_str(), nullptr));
     }
     return true;
 }
