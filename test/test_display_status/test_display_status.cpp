@@ -57,7 +57,7 @@ void test_phase_uses_to_string() {
 // Alle vier Sensoren ok -> alle vier Kürzel zeigen "ok".
 void test_sensors_all_ok() {
     auto s = base();
-    s.bmp_ok = true; s.mpu_ok = true; s.ds18b20_ok = true; s.uv_ok = true;
+    s.bme_ok = true; s.mpu_ok = true; s.ds18b20_ok = true; s.uv_ok = true;
     TEST_ASSERT_EQUAL_STRING("B:ok M:ok D:ok U:ok", status_lines(s)[4].c_str());
 }
 
@@ -67,10 +67,10 @@ void test_sensors_all_missing() {
     TEST_ASSERT_EQUAL_STRING("B:-- M:-- D:-- U:--", status_lines(s)[4].c_str());
 }
 
-// Gemischt: nur BMP280 ok -> die anderen drei bleiben unabhängig "--".
+// Gemischt: nur BME280 ok -> die anderen drei bleiben unabhängig "--".
 void test_sensors_mixed() {
     auto s = base();
-    s.bmp_ok = true;  // mpu_ok, ds18b20_ok, uv_ok bleiben false
+    s.bme_ok = true;  // mpu_ok, ds18b20_ok, uv_ok bleiben false
     TEST_ASSERT_EQUAL_STRING("B:ok M:-- D:-- U:--", status_lines(s)[4].c_str());
 }
 

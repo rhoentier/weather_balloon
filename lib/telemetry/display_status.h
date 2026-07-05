@@ -24,7 +24,7 @@ struct DisplayState {
     uint8_t sats;
     bool    sd_ok;
     Phase   phase;
-    bool    bmp_ok;      // BMP280 ok?
+    bool    bme_ok;      // BME280 ok?
     bool    mpu_ok;      // MPU-6050 ok?
     bool    ds18b20_ok;  // DS18B20 ok?
     bool    uv_ok;       // GUVA-S12SD (UV) ok?
