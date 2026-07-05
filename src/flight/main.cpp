@@ -6,6 +6,7 @@
 // Serial und microSD. Testbare Logik lebt in lib/telemetry (nativ getestet).
 
 #include <Arduino.h>
+#include <Wire.h>
 #include "pins.h"
 #include "gps_flightmode.h"
 #include "sd_log.h"
@@ -51,6 +52,18 @@ void setup() {
     // microSD initialisieren (Logging optional — Betrieb läuft auch ohne).
     g_sd_ok = sd_log_begin();
 
+    // Vext AN (versorgt OLED *und* die I²C-Sensoren) und danach den I²C-Bus
+    // EINMALIG auf die V2-OLED-Pins 4/15 aufsetzen. Grund: Auf dem Heltec V2
+    // sind die Wire-Default-Pins 21/22 (= Vext bzw. DS18B20), NICHT der
+    // Sensor-Bus. ESP32-Wire.begin() ist ein No-op, sobald der Bus einmal
+    // läuft — wer zuerst begin() ruft, legt die Pins fest. Also hier zentral
+    // und VOR dem ersten I²C-Zugriff (BME/OLED), sonst würde Adafruit_BME280
+    // den Bus auf 21/22 initialisieren und OLED + Sensor gingen leer aus.
+    pinMode(PIN_VEXT, OUTPUT);
+    digitalWrite(PIN_VEXT, LOW);          // LOW = Vext AN
+    delay(50);                            // Rail + Sensoren stabilisieren
+    Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL); // 4 / 15
+
     g_bme_ok = bme_begin();
     Serial.println(g_bme_ok ? "[flight] BME280 gefunden (0x76)"
                              : "[flight] !!! BME280 NICHT gefunden (0x76) !!!");
@@ -58,7 +71,7 @@ void setup() {
     // CSV-Kopfzeile einmal auf Serial ausgeben (Orientierung im Monitor).
     Serial.println(csv_header().c_str());
 
-    // OLED starten (Vext an, Init) — zeigt den Boden-Check.
+    // OLED starten (nutzt den oben gesetzten I²C-Bus) — zeigt den Boden-Check.
     oled_begin();
 }
 
