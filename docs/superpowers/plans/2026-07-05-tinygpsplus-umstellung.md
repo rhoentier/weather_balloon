@@ -255,6 +255,7 @@ Diesen Block:
         }
 
         bmp_read(g_rec);
+        ds_update(g_rec);   // non-blocking: übernimmt Wert nur, wenn Wandlung fertig
 
         String csv = csv_row(g_rec).c_str();
         Serial.println(csv);
@@ -280,12 +281,15 @@ ersetzen durch:
         }
 
         bmp_read(g_rec);
+        ds_update(g_rec);   // non-blocking: übernimmt Wert nur, wenn Wandlung fertig
 
         String csv = csv_row(g_rec).c_str();
         Serial.println(csv);
         sd_log(csv);
     }
 ```
+(`ds_update(g_rec)` stammt aus dem parallel eingebauten DS18B20-Feature und
+bleibt unverändert erhalten.)
 
 - [ ] **Step 4: OLED-Block auf gps_display_state() umstellen**
 
