@@ -1,5 +1,11 @@
 # NMEA-GGA-Parser Implementation Plan
 
+> **⚠️ ÜBERHOLT (2026-07-05):** Der hier beschriebene Eigenbau-Parser
+> (`gga` + `line_assembler`) wurde durch TinyGPSPlus ersetzt und aus dem
+> Repo entfernt. Siehe
+> `docs/superpowers/specs/2026-07-05-tinygpsplus-umstellung-design.md`.
+> Dieser Plan ist nur noch historischer Kontext.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ein hardware-freier Parser, der eine NMEA-GGA-Zeile in ein `GpsFix`-Struct verwandelt (`lib/telemetry/gga`), test-getrieben und nativ getestet.

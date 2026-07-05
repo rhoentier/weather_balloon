@@ -111,6 +111,7 @@ lib/telemetry/            # GETEILTE, hardware-freie Logik
   record.h/.cpp           #   Telemetrie-/CSV-Format (SD + LoRa, gemeinsam)
 src/flight/               # Flug-Firmware (Arduino, am Board verifiziert)
   pins.h, main.cpp, gps_flightmode.h/.cpp
+  gps_reader.h/.cpp       #   GPS-Auslese über TinyGPSPlus (feed/fill/display_state)
 src/ground/main.cpp       # Bodenstation (Platzhalter)
 docs/superpowers/specs/   # Konzept + Pinbelegung
 TODO.md                   # Projektschritte + Testreihenfolge (Hardware-Tests)

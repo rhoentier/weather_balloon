@@ -137,7 +137,7 @@ board-unverifiziert ist (gelb), und was noch fehlt (weiß).
 
 ```mermaid
 flowchart TD
-    L([loop-Iteration]) --> READ_GPS["GPS lesen<br/>✅ LineAssembler + parse_gga → GpsFix"]
+    L([loop-Iteration]) --> READ_GPS["GPS lesen<br/>🔶 TinyGPSPlus (gps_reader: feed/fill), zeitgesteuert 1 Hz"]
     READ_GPS --> READ_SENS["Sensoren lesen (I²C/1-Wire/ADC)<br/>🔶 BMP280 (bmp_sensor) + DS18B20 (ds18b20, async) verdrahtet, Board-Test offen; ⬜ MPU-6050, UV"]
 
     READ_SENS --> PHASE["Flugphase aktualisieren<br/>✅ FlightPhaseDetector.update(alt, t)"]
@@ -167,7 +167,7 @@ flowchart TD
     style BUILD fill:#fff3cd
     style CSV fill:#fff3cd
     style RATE fill:#d4edda
-    style READ_GPS fill:#d4edda
+    style READ_GPS fill:#fff3cd
     style READ_SENS fill:#fff3cd
     style SD fill:#fff3cd
     style LORA fill:#f8f9fa
@@ -179,9 +179,9 @@ flowchart TD
 
 **OLED-Boden-Check (`status_lines()` + `oled_*`):** Der Display-Block läuft
 **am Ende jeder `loop()`-Iteration**, bewusst **entkoppelt vom GPS-Empfang** —
-also auch dann, wenn gerade keine GGA-Zeile ankommt. Das ist der Grund für die
+also auch dann, wenn gerade keine GPS-Daten ankommen. Das ist der Grund für die
 Entkopplung: Ein *stummes* GPS-Modul (nicht verkabelt, defekt) muss als
-`GPS: --` sichtbar werden — läge das Zeichnen hinter dem GGA-Parsing, bliebe
+`GPS: --` sichtbar werden — läge das Zeichnen hinter dem GPS-Einlesen, bliebe
 das Display genau in diesem Fehlerfall leer. Gedrosselt wird auf höchstens
 einen Redraw alle 500 ms (`OLED_REFRESH_MS`), damit nicht jede Iteration aufs
 I²C schreibt. Der Zustand kommt aus dem persistenten `g_rec`/`g_detector`
@@ -275,10 +275,10 @@ Feld im Record, Spaltenname in `csv_header()`, Wert in `csv_row()` + Lesen in
 der Round-Trip-Test fängt jede Abweichung sofort.
 
 **Warum eine eigene `fix_q`-Spalte?** Sie trägt die **rohe** GGA-Fix-Qualität
-(Feld [6]: `0`=kein Fix, `1`=GPS, `2`=DGPS …) und steht direkt nach `phase`. Der
-`parse_gga()` reduziert diesen Wert intern zwar auf `has_fix = (fix_q > 0)`, aber
-für die Diagnose am Boden ist der Unterschied zwischen „nie ein Fix" und
-„Fix verloren" wertvoll. Anders als die GPS-Positionsfelder wird `fix_q` **immer**
+(`0`=kein Fix, `1`=GPS, `2`=DGPS …) und steht direkt nach `phase`. `gps_fill()`
+übernimmt sie aus `TinyGPSPlus` (`gps.location.FixQuality()`) und leitet daraus
+`has_fix = (fix_q > 0)` ab, aber für die Diagnose am Boden ist der Unterschied
+zwischen „nie ein Fix" und „Fix verloren" wertvoll. Anders als die GPS-Positionsfelder wird `fix_q` **immer**
 geschrieben (auch `0`), denn `0` ist hier ein echter Messwert, kein fehlender.
 
 **Warum eine eigene `utc`-Spalte?** Sie trägt die absolute GPS-Uhrzeit als
@@ -325,10 +325,9 @@ fest benannten Sensoren bleibt (YAGNI).
 | GPS-Flight-Mode senden/ACK | `src/flight/gps_flightmode` | 🔶 geschrieben, Board-Test offen |
 | Flugphasen-Automat | `lib/telemetry/flight_phase` | ✅ nativ getestet |
 | CSV-Record (bauen/parsen) | `lib/telemetry/record` | ✅ nativ getestet |
-| GPS-UTC-Spalte (hh:mm:ss) | `lib/telemetry/gga` + `record` | ✅ nativ getestet |
-| NMEA-Parser (GPS-Rohdaten → Record) | `lib/telemetry/gga` | ✅ nativ getestet |
-| NMEA-Zeilen-Assembler | `lib/telemetry/line_assembler` | ✅ nativ getestet |
-| GPS-Pipeline in loop() | `src/flight/main.cpp` | 🔶 geschrieben, Board-Test offen |
+| GPS-UTC-Spalte (hh:mm:ss) | `record` (Wert aus `gps_reader`) | ✅ CSV nativ getestet |
+| NMEA-Parsing (GPS-Rohdaten → Record) | `src/flight/gps_reader` (TinyGPSPlus) | 🔶 geschrieben, Board-Test offen |
+| GPS-Pipeline in loop() (1 Hz) | `src/flight/main.cpp` + `gps_reader` | 🔶 geschrieben, Board-Test offen |
 | BMP280-CSV-Spalten (temp_c, pressure_hpa, alt_baro_m) | `lib/telemetry/record` | 🔶 umgesetzt |
 | BMP280-I²C-Anbindung (Adafruit-Lib, in loop() verdrahtet) | `src/flight/bmp_sensor` + `main.cpp` | 🔶 geschrieben, Board-Test offen |
 | DS18B20-CSV-Spalte (temp_ext_c) | `lib/telemetry/record` | 🔶 umgesetzt |
@@ -343,34 +342,31 @@ fest benannten Sensoren bleibt (YAGNI).
 | Watchdog / Robustheit | `src/flight/` | ⬜ |
 | Bodenstation | `src/ground/` | ⬜ Platzhalter |
 
-Der **NMEA-GGA-Parser** ist nun **fertig und nativ getestet** (16 Tests grün):
-Er verwandelt eine GGA-Zeile in ein `GpsFix`-Struct mit den Feldern `{has_fix,
-fix_quality, lat, lon, alt_gps_m, sats, has_utc, utc_h, utc_min, utc_s}`. Damit
-ist die reine Logik-Seite (GPS → Record) lückenlos abgedeckt — inklusive der
-GPS-Uhrzeit und der rohen Fix-Qualität (CSV-Spalte `fix_q`).
-
-Der **NMEA-Zeilen-Assembler** (`LineAssembler`) ist ebenfalls **fertig und nativ
-getestet**: Er nimmt den GPS-UART-Bytestrom entgegen und liefert komplette
-Zeilen (CRLF-Behandlung, Fragmentierung, Overflow/Resync — 7 Tests grün).
-Damit sind beide Bausteine der GPS→Record-Logik hardware-frei abgesichert.
+Das **NMEA-Parsing** übernimmt jetzt die Bibliothek **TinyGPSPlus**
+(`mikalhart/TinyGPSPlus`), gekapselt im Wrapper `src/flight/gps_reader`. Der
+frühere Eigenbau (`lib/telemetry/gga` + `line_assembler`) wurde entfernt: Der
+Grund für ihn — hardware-freie, nativ testbare Logik — ist entfallen, seit im
+Projekt keine automatisierten Tests mehr geschrieben werden. `gps_reader` bietet
+drei Funktionen: `gps_feed()` (UART-Bytes an TinyGPSPlus füttern), `gps_fill()`
+(aktuellen Zustand → `TelemetryRecord`: lat, lon, alt, sats, fix_quality, UTC)
+und `gps_display_state()` (Silent/Waiting/Fix fürs OLED). Siehe
+`docs/superpowers/specs/2026-07-05-tinygpsplus-umstellung-design.md`.
 
 Darauf aufbauend ist die **GPS-Pipeline in `loop()`** (`src/flight/main.cpp`)
-jetzt verdrahtet: UART2-Bytes → `LineAssembler` → `parse_gga()` → `TelemetryRecord`
-→ `FlightPhaseDetector` → `csv_row()` → Ausgabe auf Serial **und** Schreiben auf
-microSD über den neuen Wrapper `src/flight/sd_log` (feste Datei `/flight.csv`,
-Append, Header nur einmal). Der Flight-Build kompiliert fehlerfrei — das
-Laufzeitverhalten ist aber **noch nicht am echten Board verifiziert** (🔶).
-Das ist der erste Punkt der TODO-Testreihenfolge: GPS-Flight-Mode am Boden
-prüfen und dabei jetzt zusätzlich die CSV-Ausgabe über Serial sowie den
-Inhalt von `/flight.csv` kontrollieren.
+**zeitgesteuert** verdrahtet: `gps_feed(Serial2)` füttert jede Iteration den
+UART-Strom; einmal pro Sekunde (`LOG_INTERVAL_MS = 1000`) baut ein Zeit-Block
+aus dem aktuellen Zustand eine Zeile: `gps_fill()` → `FlightPhaseDetector` →
+`csv_row()` → Ausgabe auf Serial **und** Schreiben auf microSD über
+`src/flight/sd_log` (feste Datei `/flight.csv`, Append, Header nur einmal). Der
+Flight-Build kompiliert fehlerfrei — das Laufzeitverhalten ist aber **noch nicht
+am echten Board verifiziert** (🔶). Das ist der erste Punkt der
+TODO-Testreihenfolge: GPS-Flight-Mode am Boden prüfen und dabei die ~1-Hz-CSV-
+Ausgabe über Serial sowie den Inhalt von `/flight.csv` kontrollieren.
 
-Die **GPS-UTC-Spalte** (Zeitstempel aus dem GPS statt nur `millis()`) ist nun
-**umgesetzt und nativ getestet**: `parse_gga()` liest die absolute Uhrzeit aus
-Feld [1] der GGA-Zeile in `GpsFix` (`has_utc`, `utc_h/utc_min/utc_s`), entkoppelt
-von `has_fix`; `record.cpp` schreibt sie als eigene CSV-Spalte `utc` im Format
-`hh:mm:ss` direkt nach `t_ms` und liest sie im Round-Trip wieder zurück — siehe
-`docs/superpowers/specs/2026-07-04-gps-pipeline-integration-design.md`,
-Abschnitt „Zeit & Synchronisierung".
+Die **GPS-UTC-Spalte** (Zeitstempel aus dem GPS statt nur `millis()`) liefert
+`gps_fill()` aus `gps.time` (`has_utc`, `utc_h/utc_min/utc_s`), entkoppelt vom
+Positions-Fix; `record.cpp` schreibt sie als eigene CSV-Spalte `utc` im Format
+`hh:mm:ss` direkt nach `t_ms` und liest sie im Round-Trip wieder zurück.
 
 Der verbaute Umwelt-Sensor ist ein **BMP280** (Temperatur + Luftdruck, KEINE
 Luftfeuchte). Das war zwischenzeitlich als BME280 angenommen und umgebaut worden
@@ -382,8 +378,8 @@ BMP280 trägt. Der BME280-Umbau wurde daraufhin zurückgebaut. Aktueller Stand:
 **bewusst nicht** hardware-frei nachgebaut, sondern über die fertige
 Adafruit-BMP280-Bibliothek gelesen (`src/flight/bmp_sensor`, I2C-Adresse fest
 `0x76` — am Board bestätigt, der Adafruit-Default wäre 0x77 — QNH fest
-1013,25 hPa). `main.cpp` ruft `bmp_begin()` in `setup()` und `bmp_read()` pro
-GGA-Zeile in `loop()` auf; der Flight-Build kompiliert fehlerfrei, das
+1013,25 hPa). `main.cpp` ruft `bmp_begin()` in `setup()` und `bmp_read()` im
+1-Hz-Log-Block der `loop()` auf; der Flight-Build kompiliert fehlerfrei, das
 Laufzeitverhalten (BMP280 gefunden + plausible Werte) ist aber **noch nicht am
 echten Board verifiziert** (🔶) — nächster Punkt der TODO-Testreihenfolge.
 
