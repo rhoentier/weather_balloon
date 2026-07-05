@@ -10,11 +10,15 @@
 #define PIN_VEXT        21   // LOW = AN
 
 // --- GPS (NEO-6M) an UART2 / Serial2, 9600 Baud ---
+// WICHTIG: UART wird gekreuzt verkabelt (TX des einen an RX des anderen):
+//     ESP32 GPIO17 (TX) --> GPS RX   (Befehl raus, z.B. Flight-Mode)
+//     ESP32 GPIO23 (RX) <-- GPS TX   (NMEA + UBX-ACK rein)
+// Am Board verifiziert: mit dieser Kreuzung kommt der UBX-ACK zurück.
 #define PIN_GPS_RX      23   // ESP32-RX  <- GPS-TX
 #define PIN_GPS_TX      17   // ESP32-TX  -> GPS-RX (Pflicht: Flight-Mode-Befehl!)
 #define GPS_BAUD        9600
 
-// --- I2C (geteilt mit OLED) : BME280 + MPU-6050 ---
+// --- I2C (geteilt mit OLED) : BMP280 + MPU-6050 ---
 #define PIN_I2C_SDA      4
 #define PIN_I2C_SCL     15
 

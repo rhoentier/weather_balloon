@@ -42,12 +42,13 @@ struct TelemetryRecord {
     float  alt_gps_m = 0.0f; // geometrische Höhe
     uint8_t sats = 0;        // Anzahl Satelliten
 
-    // --- BME280 (Temperatur/Druck/Barometer-Höhe/Feuchte), ein Flag ---
-    bool  has_bme = false;
+    // --- BMP280 (Temperatur/Druck/Barometer-Höhe), ein gemeinsames Flag ---
+    // Der verbaute Chip ist ein BMP280 (Chip-ID 0x58, am Board verifiziert) —
+    // KEINE Luftfeuchte (das kann nur der BME280, Chip-ID 0x60).
+    bool  has_bmp = false;
     float temp_c = 0.0f;        // °C
     float pressure_hpa = 0.0f;  // hPa
     float alt_baro_m = 0.0f;    // barometrische Höhe (m), aus Druck + QNH
-    float humidity_pct = 0.0f;  // relative Luftfeuchte (%)
 };
 
 // Kopfzeile mit Spaltennamen (ohne Zeilenende). Reihenfolge == csv_row().

@@ -16,7 +16,7 @@
 #include "record.h"
 #include "flight_phase.h"
 #include "oled.h"
-#include "bme_sensor.h"
+#include "bmp_sensor.h"
 #include "display_status.h"
 
 using namespace telemetry;
@@ -25,7 +25,7 @@ static LineAssembler       g_asm;
 static TelemetryRecord     g_rec;
 static FlightPhaseDetector g_detector;
 static bool g_sd_ok       = false;  // Ergebnis von sd_log_begin(), fürs Display
-static bool g_bme_ok      = false;  // Ergebnis von bme_begin(), fürs Display
+static bool g_bmp_ok      = false;  // Ergebnis von bmp_begin(), fürs Display
 static bool g_gps_seen    = false;  // schon je eine GGA geparst? (GPS-Stufe)
 static bool g_oled_active = true;   // Display läuft, bis PreFlight verlassen wird
 static uint32_t g_last_oled_ms = 0;              // letzte OLED-Aktualisierung
@@ -57,16 +57,16 @@ void setup() {
     // sind die Wire-Default-Pins 21/22 (= Vext bzw. DS18B20), NICHT der
     // Sensor-Bus. ESP32-Wire.begin() ist ein No-op, sobald der Bus einmal
     // läuft — wer zuerst begin() ruft, legt die Pins fest. Also hier zentral
-    // und VOR dem ersten I²C-Zugriff (BME/OLED), sonst würde Adafruit_BME280
+    // und VOR dem ersten I²C-Zugriff (BMP/OLED), sonst würde Adafruit_BMP280
     // den Bus auf 21/22 initialisieren und OLED + Sensor gingen leer aus.
     pinMode(PIN_VEXT, OUTPUT);
     digitalWrite(PIN_VEXT, LOW);          // LOW = Vext AN
     delay(50);                            // Rail + Sensoren stabilisieren
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL); // 4 / 15
 
-    g_bme_ok = bme_begin();
-    Serial.println(g_bme_ok ? "[flight] BME280 gefunden (0x76)"
-                             : "[flight] !!! BME280 NICHT gefunden (0x76) !!!");
+    g_bmp_ok = bmp_begin();
+    Serial.println(g_bmp_ok ? "[flight] BMP280 gefunden (0x76)"
+                             : "[flight] !!! BMP280 NICHT gefunden (0x76) !!!");
 
     // CSV-Kopfzeile einmal auf Serial ausgeben (Orientierung im Monitor).
     Serial.println(csv_header().c_str());
@@ -104,7 +104,7 @@ void loop() {
             g_rec.phase = g_detector.phase();  // ohne Fix letzte Phase halten
         }
 
-        bme_read(g_rec);
+        bmp_read(g_rec);
 
         String csv = csv_row(g_rec).c_str();
         Serial.println(csv);
@@ -123,7 +123,7 @@ void loop() {
                                      : GpsDisp::Silent;
             ds.sats  = g_rec.sats;
             ds.sd_ok = g_sd_ok;
-            ds.bme_ok = g_bme_ok;
+            ds.bmp_ok = g_bmp_ok;
             ds.phase = g_detector.phase();
             oled_show(status_lines(ds));
         } else {
