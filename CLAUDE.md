@@ -12,11 +12,10 @@ Hardware-Stolpersteinen kurz das *Warum* miterklären.
 ## Arbeitsweise (verbindlich)
 
 ### Einfachheit vor Prozess
-Das Wichtigste ist ein **einfacher, verständlicher Aufbau** — nicht eine
-perfekte Testpyramide. Code so schreiben, dass man ihn direkt aufs Board
-flashen und über `pio device monitor` nachvollziehen kann, was passiert.
-Kein Overengineering, keine Abstraktionsschichten nur um der Testbarkeit
-willen, keine Architektur auf Vorrat.
+Das Wichtigste ist ein **einfacher, verständlicher Aufbau**. Code so schreiben,
+dass man ihn direkt aufs Board flashen und über `pio device monitor`
+nachvollziehen kann, was passiert. Kein Overengineering, keine
+Abstraktionsschichten auf Vorrat, keine Architektur auf Vorrat.
 
 ### YAGNI — strikt
 Nur bauen, was *jetzt* gebraucht wird. Konkret beim Telemetrie-Record: **keine
@@ -25,14 +24,11 @@ wenn er tatsächlich gelesen wird. Erweiterung pro Sensor = genau drei Stellen
 (siehe unten). Kein „könnte man später brauchen"-Code, keine Konfig-Optionen
 auf Vorrat, keine Abstraktionsschicht für hypothetische Fälle.
 
-### Testen — pragmatisch, nicht vollständig
-Tests sind ein Werkzeug für die Fälle, wo sich ein Fehler am Board schlecht
-finden lässt — nicht Pflicht für jeden Baustein. Native Unit-Tests
-(`lib/telemetry/`, laufen in ms auf dem Mac) lohnen sich vor allem für
-knifflige Byte-/Protokoll-Logik (z.B. UBX-Checksummen, CSV-Format), wo man
-gegen eine **bekannt-korrekte Referenz** prüfen will statt gegen die eigene
-Annahme. Für alles andere reicht: Code schreiben, aufs Board flashen, am
-Monitor/Verhalten prüfen, ob es tut was es soll. Kein TDD-Zwang.
+### Keine Tests schreiben
+In diesem Projekt werden **keine automatisierten Tests** geschrieben. Neuen Code
+nicht mit Tests absichern. Verifiziert wird ausschließlich am Verhalten: Code
+schreiben, aufs Board flashen, am `pio device monitor` / am tatsächlichen
+Verhalten prüfen, ob es tut was es soll.
 
 ### Bibliotheken bevorzugen
 Für Standardaufgaben (Sensor-Treiber, Protokolle, Parsing etc.) bevorzugt
@@ -87,14 +83,13 @@ DIO1 35 DIO2 34 | OLED SDA4 SCL15 RST16 | Vext21 | LED25 | Button0.
 
 ---
 
-## Build & Test
+## Build & Flash
 
 PlatformIO (Core 6.1.19). CLI liegt unter `~/.platformio/penv/bin/` — entweder
 zum PATH hinzufügen oder die VSCode-PlatformIO-Buttons nutzen.
 
 ```bash
 export PATH="$PATH:$HOME/.platformio/penv/bin"   # für Terminal-Nutzung
-pio test -e native           # Unit-Tests auf dem Mac (schnell, KEIN Board)
 pio run  -e flight           # Flug-Firmware für ESP32 kompilieren
 pio run  -e flight -t upload # aufs Board flashen
 pio device monitor           # serielle Ausgabe (115200 Baud)
@@ -103,31 +98,22 @@ pio device monitor           # serielle Ausgabe (115200 Baud)
 ### Environments (`platformio.ini`)
 - `flight` — Flug-Einheit (board `heltec_wifi_lora_32_V2`)
 - `ground` — Bodenstation (board `heltec_wifi_lora_32_V3`)
-- `native` — Unit-Tests auf dem Host; erbt bewusst **NICHT** das Arduino-Zeug
-  (sonst will PlatformIO ein Board). ESP32-Builds erben via `extends = esp32_base`.
-
-### Test-Konventionen
-- Pro Test-Baustein ein eigener Ordner unter `test/` (jeder hat sein eigenes
-  `main()` mit `UNITY_BEGIN/END` — sonst Linker-Kollision).
-- Double-Asserts sind via `build_flags = -D UNITY_INCLUDE_DOUBLE ...` im
-  native-Env aktiviert (GPS lat/lon sind `double`).
 
 ---
 
 ## Projektstruktur
 
 ```
-platformio.ini            # 3 Environments
-lib/telemetry/            # GETEILTE, hardware-freie Logik (nativ getestet)
+platformio.ini            # Environments
+lib/telemetry/            # GETEILTE, hardware-freie Logik
   flight_phase.h/.cpp     #   Flugphasen-Automat (PreFlight/Ascent/Descent/Landed)
   ubx.h/.cpp              #   UBX-CFG-NAV5 bauen + Checksumme + ACK-Parsing
   record.h/.cpp           #   Telemetrie-/CSV-Format (SD + LoRa, gemeinsam)
 src/flight/               # Flug-Firmware (Arduino, am Board verifiziert)
   pins.h, main.cpp, gps_flightmode.h/.cpp
 src/ground/main.cpp       # Bodenstation (Platzhalter)
-test/test_*/              # native Unity-Tests, ein Ordner pro Baustein
 docs/superpowers/specs/   # Konzept + Pinbelegung
-TODO.md                   # Projektschritte + Testreihenfolge
+TODO.md                   # Projektschritte + Testreihenfolge (Hardware-Tests)
 ```
 
 ---
@@ -151,16 +137,16 @@ bool        parse_csv_row(const std::string&, TelemetryRecord&);  // Round-trip!
 2. Spaltenname in `csv_header()`
 3. Wert in `csv_row()` schreiben **und** in `parse_csv_row()` lesen
 
-Reihenfolge der Spalten muss in header/row/parse identisch sein. Round-Trip-Tests
-fangen jede Inkonsistenz (z.B. Spaltenzahl-Mismatch) sofort.
+Reihenfolge der Spalten muss in header/row/parse identisch sein — sonst passen
+beim Einlesen die Spalten nicht mehr zusammen (z.B. Spaltenzahl-Mismatch).
 
 ---
 
 ## Stand & Nächstes
 
-Fertig & getestet (20 native Tests grün): Flugphasen, GPS-Flight-Mode-Logik,
-CSV-Format. GPS-Flight-Mode-Senden (`src/flight`) ist geschrieben, aber **noch
-nicht am echten NEO-6M verifiziert** (erster Punkt der TODO-Testreihenfolge).
+Fertig: Flugphasen, GPS-Flight-Mode-Logik, CSV-Format. GPS-Flight-Mode-Senden
+(`src/flight`) ist geschrieben, aber **noch nicht am echten NEO-6M verifiziert**
+(erster Punkt der TODO-Testreihenfolge).
 
 Offene Hardware-Tests siehe `TODO.md` (GPS-Flight-Mode am Boden, microSD 3,3/5 V,
 Batteriespannung, Kältetest, Reichweite, Generalprobe).
