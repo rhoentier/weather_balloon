@@ -14,7 +14,7 @@
 #define PIN_GPS_TX      17   // ESP32-TX  -> GPS-RX (Pflicht: Flight-Mode-Befehl!)
 #define GPS_BAUD        9600
 
-// --- I2C (geteilt mit OLED) : BMP280 + MPU-6050 ---
+// --- I2C (geteilt mit OLED) : BME280 + MPU-6050 ---
 #define PIN_I2C_SDA      4
 #define PIN_I2C_SCL     15
 

@@ -15,6 +15,7 @@
 #include "record.h"
 #include "flight_phase.h"
 #include "oled.h"
+#include "bme_sensor.h"
 #include "display_status.h"
 
 using namespace telemetry;
@@ -23,6 +24,7 @@ static LineAssembler       g_asm;
 static TelemetryRecord     g_rec;
 static FlightPhaseDetector g_detector;
 static bool g_sd_ok       = false;  // Ergebnis von sd_log_begin(), fürs Display
+static bool g_bme_ok      = false;  // Ergebnis von bme_begin(), fürs Display
 static bool g_gps_seen    = false;  // schon je eine GGA geparst? (GPS-Stufe)
 static bool g_oled_active = true;   // Display läuft, bis PreFlight verlassen wird
 static uint32_t g_last_oled_ms = 0;              // letzte OLED-Aktualisierung
@@ -49,6 +51,10 @@ void setup() {
     // microSD initialisieren (Logging optional — Betrieb läuft auch ohne).
     g_sd_ok = sd_log_begin();
 
+    g_bme_ok = bme_begin();
+    Serial.println(g_bme_ok ? "[flight] BME280 gefunden (0x76)"
+                             : "[flight] !!! BME280 NICHT gefunden (0x76) !!!");
+
     // CSV-Kopfzeile einmal auf Serial ausgeben (Orientierung im Monitor).
     Serial.println(csv_header().c_str());
 
@@ -61,14 +67,6 @@ void loop() {
         char c = static_cast<char>(Serial2.read());
         std::string line;
         if (!g_asm.push(c, line)) continue;
-
-        // >>> TEMP DEBUG (GPS-Empfangsdiagnose) — nach Diagnose wieder entfernen!
-        // Gibt JEDE rohe NMEA-Zeile aus, VOR dem GGA-Filter. Wichtig:
-        //   $GxGSV = Satelliten in Sicht + SNR (auch ganz ohne Fix)
-        //   $GxGGA Feld[7] = genutzte Sats, Feld[6] = Fix-Qualität
-        Serial.print("NMEA ");
-        Serial.println(line.c_str());
-        // <<< TEMP DEBUG
 
         GpsFix fix;
         if (!parse_gga(line, fix)) continue;   // Nicht-GGA / kaputt -> überspringen
@@ -93,6 +91,8 @@ void loop() {
             g_rec.phase = g_detector.phase();  // ohne Fix letzte Phase halten
         }
 
+        bme_read(g_rec);
+
         String csv = csv_row(g_rec).c_str();
         Serial.println(csv);
         sd_log(csv);
@@ -110,6 +110,7 @@ void loop() {
                                      : GpsDisp::Silent;
             ds.sats  = g_rec.sats;
             ds.sd_ok = g_sd_ok;
+            ds.bme_ok = g_bme_ok;
             ds.phase = g_detector.phase();
             oled_show(status_lines(ds));
         } else {
