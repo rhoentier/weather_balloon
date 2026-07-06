@@ -228,9 +228,9 @@ Flug testbar ist.
 stateDiagram-v2
     [*] --> PreFlight
 
-    PreFlight --> Ascent: Steigrate ≥ 1 m/s<br/>UND ≥ 5 s anhaltend<br/>(entprellt GPS-Rauschen)
-    Ascent --> Descent: Sinkrate ≤ -3 m/s<br/>(= Ballon geplatzt / Burst)
-    Descent --> Landed: wieder niedrig (< 800 m)<br/>UND ≥ 60 s stabil (|v| < 0.5 m/s)
+    PreFlight --> Ascent: Steigrate ≥ 1 m/s<br/>UND ≥ 30 s anhaltend<br/>(entprellt GPS-Rauschen)
+    Ascent --> Descent: Sinkrate ≤ -3 m/s<br/>UND ≥ 30 s anhaltend<br/>(= Ballon geplatzt / Burst)
+    Descent --> Landed: wieder niedrig (< 800 m)<br/>UND Höhe ≥ 60 s in ±25 m-Band<br/>(Position, nicht Momentangeschw.)
     Landed --> [*]
 
     note right of Descent
@@ -251,7 +251,29 @@ mehrere Meter. Ein einzelner „Sprung" nach oben darf nicht sofort „Aufstieg"
 auslösen (sonst startet das volle Logging zu früh), und ein einzelner Ausreißer
 nach unten darf nicht „Landung" melden (sonst geht die Firmware fälschlich in
 den Sparmodus, während der Ballon noch fliegt). Deshalb müssen die Bedingungen
-über eine Mindestzeit *anhalten*.
+über eine Mindestzeit *anhalten*. Beide Flug-Übergänge (PreFlight → Ascent und
+Ascent → Descent) sind gleich entprellt: die Rate muss **≥ 30 s durchgehend**
+anliegen (`min_ascent_ms` / `min_descent_ms`), sonst wird der Zähler wieder auf
+0 gesetzt. Ein realer Auf- bzw. Sinkflug hält sowieso minutenlang an, also
+kostet die Schwelle nichts — sie filtert nur einzelne Höhensprünge weg.
+
+**Warum die Landung über die Position statt über die Geschwindigkeit?** Die
+Landung (Descent → Landed) ist der teuerste Übergang: Wird er verpasst, startet
+der Bergungsmodus nicht und der Ballon bleibt verschollen. Naheliegend wäre
+„Vertikalgeschwindigkeit ≈ 0 für 60 s". Das ist aber gerade bei GPS-Rauschen
+fragil: `vspeed` = (verrauschte Höhendifferenz) / kurzes Δt **verstärkt** das
+Rauschen, und die GPS-*Höhe* rauscht ohnehin am stärksten (±5–10 m beim
+NEO-6M). Am ruhig liegenden Ballon zappelt die berechnete vspeed dadurch
+dauernd über eine enge Schwelle — und würde das 60-s-Fenster bei jedem Ausreißer
+neu starten, sodass `Landed` nie erreicht wird. Stattdessen prüft die Erkennung
+die **Position**: Sobald die Höhe unter 800 m fällt, wird ein Anker gesetzt;
+bleibt die Höhe **≥ 60 s** in einem **±25 m-Band** (`landed_band_m` /
+`landed_hold_ms`) um diesen Anker, gilt der Ballon als gelandet. Ein einzelner
+Sprung aus dem Band verschiebt nur den Anker und startet das Fenster neu
+(verzögert die Erkennung höchstens), blockiert sie aber nicht dauerhaft. Die
+Momentangeschwindigkeit `vertical_speed_mps()` bleibt für Telemetrie/Debug
+erhalten, entscheidet die Landung aber nicht mehr. Werte im Kältetest /
+in der Generalprobe an der echten GPS-Rausch-Amplitude verifizieren.
 
 **Warum keine Rücksprünge?** Die Übergänge sind bewusst als Einbahnstraße
 modelliert (PreFlight → Ascent → Descent → Landed). Das macht das Verhalten

@@ -24,9 +24,7 @@ Phase FlightPhaseDetector::update(float altitude_m, uint32_t t_ms) {
     last_alt_ = altitude_m;
     last_t_ = t_ms;
 
-    const bool low    = altitude_m < cfg_.ground_altitude_m;
-    const bool stable = vspeed_ < cfg_.landed_speed_mps &&
-                        vspeed_ > -cfg_.landed_speed_mps;
+    const bool low = altitude_m < cfg_.ground_altitude_m;
 
     switch (phase_) {
         case Phase::PreFlight:
@@ -43,21 +41,41 @@ Phase FlightPhaseDetector::update(float altitude_m, uint32_t t_ms) {
             break;
 
         case Phase::Ascent:
-            // Schneller Höhenverlust = Burst → Sinkflug. (Kein Rückweg.)
+            // Schneller Höhenverlust = Burst → Sinkflug. Erst nach
+            // min_descent_ms anhaltendem Sinken (entprellt einzelne GPS-
+            // Höhensprünge im turbulenten Aufstieg). Kein Rückweg.
             if (vspeed_ <= cfg_.descent_rate_mps) {
-                phase_ = Phase::Descent;
+                if (descending_since_ == 0) descending_since_ = t_ms;
+                if (t_ms - descending_since_ >= cfg_.min_descent_ms) {
+                    phase_ = Phase::Descent;
+                }
+            } else {
+                descending_since_ = 0;
             }
             break;
 
         case Phase::Descent:
-            // Landung: wieder niedrig UND über landed_hold_ms hinweg stabil.
-            if (low && stable) {
-                if (stable_since_ == 0) stable_since_ = t_ms;
-                if (t_ms - stable_since_ >= cfg_.landed_hold_ms) {
+            // Landung: wieder niedrig UND die Höhe bleibt landed_hold_ms lang
+            // in einem ±landed_band_m-Band. Bewusst über die POSITION statt der
+            // Momentangeschwindigkeit: vspeed = (verrauschte Höhendifferenz)/Δt
+            // verstärkt GPS-Rauschen und würde am liegenden Ballon dauernd über
+            // die Schwelle zappeln → Landung würde nie erkannt. Ein einzelner
+            // Höhen-Ausreißer > Band verschiebt nur den Anker und startet das
+            // Fenster neu (kein Landed-Fehlalarm), blockiert die Erkennung aber
+            // nicht dauerhaft, solange die Höhe im Mittel ruhig bleibt.
+            if (low && band_since_ != 0 &&
+                altitude_m >= band_ref_m_ - cfg_.landed_band_m &&
+                altitude_m <= band_ref_m_ + cfg_.landed_band_m) {
+                if (t_ms - band_since_ >= cfg_.landed_hold_ms) {
                     phase_ = Phase::Landed;
                 }
+            } else if (low) {
+                // Neues Band um die aktuelle Höhe verankern, Fenster starten.
+                band_ref_m_ = altitude_m;
+                band_since_ = t_ms;
             } else {
-                stable_since_ = 0;
+                // Noch zu hoch → gar kein Landekandidat.
+                band_since_ = 0;
             }
             break;
 

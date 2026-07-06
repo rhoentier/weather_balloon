@@ -26,9 +26,12 @@ struct PhaseConfig {
     float ascent_rate_mps   = 1.0f;   // ab dieser Steigrate gilt es als Aufstieg
     float descent_rate_mps  = -3.0f;  // ab dieser Sinkrate gilt es als Sinkflug
     float ground_altitude_m = 800.0f; // unterhalb -> Kandidat für "am Boden"
-    float landed_speed_mps  = 0.5f;   // |Vertikalgeschw.| darunter = stabil
-    uint32_t landed_hold_ms = 60000;  // so lange stabil+niedrig -> Landed
-    uint32_t min_ascent_ms  = 5000;   // Mindestzeit steigend, bevor Ascent (Entprellen)
+    float landed_band_m     = 25.0f;  // Höhe bleibt in ±diesem Band -> "ruhig am Boden".
+                                       // Über die POSITION statt der Momentangeschw.,
+                                       // damit GPS-Höhenrauschen die Landung nicht blockiert.
+    uint32_t landed_hold_ms = 60000;  // so lange niedrig+im Band -> Landed
+    uint32_t min_ascent_ms  = 30000;  // Mindestzeit steigend, bevor Ascent (Entprellen)
+    uint32_t min_descent_ms = 30000;  // Mindestzeit sinkend, bevor Descent (Entprellen)
 };
 
 // Zustandsautomat. Bekommt Messpunkte (Höhe + Zeitstempel) und liefert die
@@ -55,7 +58,9 @@ private:
     uint32_t last_t_ = 0;
     float vspeed_ = 0.0f;
     uint32_t ascending_since_ = 0;  // seit wann steigend (Entprellen)
-    uint32_t stable_since_ = 0;     // seit wann niedrig+stabil (Landed-Halten)
+    uint32_t descending_since_ = 0; // seit wann sinkend (Entprellen)
+    uint32_t band_since_ = 0;       // seit wann Höhe im Landeband (Landed-Halten)
+    float    band_ref_m_ = 0.0f;    // Ankerhöhe des aktuellen Landebands
 };
 
 // Phase als kurzer Text (für CSV / Display / Telemetrie).
