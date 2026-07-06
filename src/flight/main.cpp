@@ -17,6 +17,8 @@
 #include "oled.h"
 #include "bmp_sensor.h"
 #include "ds18b20.h"
+#include "uv_sensor.h"
+#include "mpu_sensor.h"
 #include "display_status.h"
 
 using namespace telemetry;
@@ -26,11 +28,14 @@ static FlightPhaseDetector g_detector;
 static bool g_sd_ok       = false;  // Ergebnis von sd_log_begin(), fürs Display
 static bool g_bmp_ok      = false;  // Ergebnis von bmp_begin(), fürs Display
 static bool g_ds_ok       = false;  // Ergebnis von ds_begin(), fürs Display
-static bool g_oled_active = true;   // Display läuft, bis PreFlight verlassen wird
+static bool g_uv_ok       = false;  // Ergebnis von uv_begin(), fürs Display
+static bool g_mpu_ok      = false;  // Ergebnis von mpu_begin(), fürs Display
+static bool g_oled_active = true;   // Display läuft, bis Timeout ODER Aufstieg
 static uint32_t g_last_oled_ms = 0;              // letzte OLED-Aktualisierung
 static const uint32_t OLED_REFRESH_MS = 500;     // OLED höchstens alle 500 ms neu zeichnen
+static const uint32_t OLED_ON_MS = 1000UL * 60 * 5;  // Display am Boden 5 min an, dann aus
 static uint32_t g_last_log_ms = 0;               // letzte CSV-Zeile geschrieben
-static const uint32_t LOG_INTERVAL_MS = 1000;    // eine CSV-Zeile pro Sekunde (1 Hz)
+static const uint32_t LOG_INTERVAL_MS = 5000;    // eine CSV-Zeile alle 5 s (0,2 Hz)
 
 void setup() {
     Serial.begin(115200);
@@ -82,6 +87,19 @@ void setup() {
         Serial.println("[flight] !!! DS18B20 NICHT gefunden (1-Wire) !!!");
     }
 
+    // GUVA-S12SD (UV, analog an GPIO36/ADC1). Kein Presence-Check möglich
+    // (reiner Analog-Pin) → uv_begin() konfiguriert nur den ADC.
+    g_uv_ok = uv_begin();
+    Serial.println("[flight] GUVA-S12SD UV: ADC an GPIO36 konfiguriert (ADC-Rohwert 0..4095)");
+
+    // MPU-6050 (IMU, I²C an 0x68 — selber Bus wie BMP280/OLED).
+    g_mpu_ok = mpu_begin();
+    if (g_mpu_ok) {
+        Serial.println("[flight] MPU-6050 gefunden (0x68)");
+    } else {
+        Serial.println("[flight] !!! MPU-6050 NICHT gefunden (0x68) !!!");
+    }
+
     // CSV-Kopfzeile einmal auf Serial ausgeben (Orientierung im Monitor).
     Serial.println(csv_header().c_str());
 
@@ -108,6 +126,8 @@ void loop() {
 
         bmp_read(g_rec);
         ds_update(g_rec);   // non-blocking: übernimmt Wert nur, wenn Wandlung fertig
+        uv_read(g_rec);
+        mpu_read(g_rec);
 
         String csv = csv_row(g_rec).c_str();
         Serial.println(csv);
@@ -119,17 +139,21 @@ void loop() {
     // (der Silent-Fall wäre sonst nie erreichbar). Gedrosselt gegen I²C-Spam.
     if (g_oled_active && (millis() - g_last_oled_ms >= OLED_REFRESH_MS)) {
         g_last_oled_ms = millis();
-        if (g_detector.phase() == Phase::PreFlight) {
+        // Abschalten, sobald 5 min um sind ODER der Aufstieg begonnen hat —
+        // was zuerst kommt. In der Praxis greift meist der Timeout.
+        if (millis() < OLED_ON_MS && g_detector.phase() == Phase::PreFlight) {
             DisplayState ds;
             ds.gps   = gps_display_state();
             ds.sats  = g_rec.sats;
             ds.sd_ok = g_sd_ok;
             ds.bmp_ok = g_bmp_ok;
             ds.ds18b20_ok = g_ds_ok;
+            ds.uv_ok = g_uv_ok;
+            ds.mpu_ok = g_mpu_ok;
             ds.phase = g_detector.phase();
             oled_show(status_lines(ds));
         } else {
-            oled_off();          // Flug begonnen -> Display aus (einmalig)
+            oled_off();          // Timeout oder Flugstart -> Display aus (einmalig)
             g_oled_active = false;
         }
     }

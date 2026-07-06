@@ -32,7 +32,7 @@ static std::vector<std::string> split(const std::string& line) {
 // REIHENFOLGE der Spalten muss in header / row / parse identisch sein.
 
 std::string csv_header() {
-    return "t_ms,utc,phase,fix_q,lat,lon,alt_gps_m,sats,temp_c,pressure_hpa,alt_baro_m,temp_ext_c";
+    return "t_ms,utc,phase,fix_q,lat,lon,alt_gps_m,sats,temp_c,pressure_hpa,alt_baro_m,temp_ext_c,uv_raw,acc_x_g,acc_y_g,acc_z_g,gyr_x_dps,gyr_y_dps,gyr_z_dps";
 }
 
 std::string csv_row(const TelemetryRecord& r) {
@@ -75,13 +75,30 @@ std::string csv_row(const TelemetryRecord& r) {
     if (r.has_ds) {
         s += num(r.temp_ext_c, 2);
     }
+    s += ',';
+    // GUVA UV: nur bei aktivem Sensor ein Wert (ADC-Counts), sonst leeres Feld.
+    if (r.has_uv) {
+        s += num(r.uv_raw, 1);
+    }
+    s += ',';
+    // MPU-6050: nur bei bestücktem Sensor die 6 Werte, sonst fünf leere Felder.
+    if (r.has_mpu) {
+        s += num(r.acc_x_g, 3);   s += ',';
+        s += num(r.acc_y_g, 3);   s += ',';
+        s += num(r.acc_z_g, 3);   s += ',';
+        s += num(r.gyr_x_dps, 2); s += ',';
+        s += num(r.gyr_y_dps, 2); s += ',';
+        s += num(r.gyr_z_dps, 2);
+    } else {
+        s += ",,,,,";  // acc_x/y/z, gyr_x/y/z alle leer
+    }
     return s;
 }
 
 bool parse_csv_row(const std::string& line, TelemetryRecord& out) {
     if (line.empty()) return false;
     auto f = split(line);
-    if (f.size() != 12) return false;          // Spaltenzahl muss passen
+    if (f.size() != 19) return false;          // Spaltenzahl muss passen
     if (f[0].empty()) return false;           // t_ms ist Pflicht
 
     out = TelemetryRecord{};                  // sauber zurücksetzen
@@ -127,6 +144,21 @@ bool parse_csv_row(const std::string& line, TelemetryRecord& out) {
     if (!f[11].empty()) {
         out.has_ds = true;
         out.temp_ext_c = static_cast<float>(std::strtod(f[11].c_str(), nullptr));
+    }
+    // GUVA UV (Feld [12]): gilt als vorhanden, wenn befüllt.
+    if (!f[12].empty()) {
+        out.has_uv = true;
+        out.uv_raw = static_cast<float>(std::strtod(f[12].c_str(), nullptr));
+    }
+    // MPU-6050 (Felder [13]..[18]): gilt als vorhanden, wenn acc_x befüllt ist.
+    if (!f[13].empty()) {
+        out.has_mpu = true;
+        out.acc_x_g = static_cast<float>(std::strtod(f[13].c_str(), nullptr));
+        if (!f[14].empty()) out.acc_y_g   = static_cast<float>(std::strtod(f[14].c_str(), nullptr));
+        if (!f[15].empty()) out.acc_z_g   = static_cast<float>(std::strtod(f[15].c_str(), nullptr));
+        if (!f[16].empty()) out.gyr_x_dps = static_cast<float>(std::strtod(f[16].c_str(), nullptr));
+        if (!f[17].empty()) out.gyr_y_dps = static_cast<float>(std::strtod(f[17].c_str(), nullptr));
+        if (!f[18].empty()) out.gyr_z_dps = static_cast<float>(std::strtod(f[18].c_str(), nullptr));
     }
     return true;
 }

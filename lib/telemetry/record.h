@@ -55,6 +55,20 @@ struct TelemetryRecord {
     // sich selbst erwärmt.
     bool  has_ds = false;
     float temp_ext_c = 0.0f;    // °C
+
+    // --- GUVA-S12SD (UV, analog) ---
+    // ROHER ADC-Zählwert (0..4095, gemittelt) — kein mV, kein UV-Index.
+    // Umrechnung erst am Boden; roher Zählwert vermeidet den ESP32-ADC-Offset
+    // am unteren Ende (siehe src/flight/uv_sensor.h).
+    bool  has_uv = false;
+    float uv_raw = 0.0f;        // ADC-Counts (0..4095)
+
+    // --- MPU-6050 (IMU: Beschleunigung + Drehrate), ein gemeinsames Flag ---
+    // Zeigt Lage, Rotation und Taumeln des Ballons. Werte in physikalischen
+    // Einheiten (g bzw. °/s), konsistent zu den anderen Sensoren.
+    bool  has_mpu = false;
+    float acc_x_g = 0.0f, acc_y_g = 0.0f, acc_z_g = 0.0f;        // g
+    float gyr_x_dps = 0.0f, gyr_y_dps = 0.0f, gyr_z_dps = 0.0f;  // °/s
 };
 
 // Kopfzeile mit Spaltennamen (ohne Zeilenende). Reihenfolge == csv_row().

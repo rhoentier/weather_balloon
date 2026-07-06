@@ -32,6 +32,8 @@ flowchart TB
         GPSFM["gps_flightmode.cpp<br/>UBX senden + ACK lesen"]
         BMP["bmp_sensor.cpp<br/>I2C-Lesen via Adafruit-Lib (0x76)"]
         DS["ds18b20.cpp<br/>1-Wire-Lesen, async (Außentemp.)"]
+        UV["uv_sensor.cpp<br/>ADC-Lesen GPIO36 (UV-Rohspannung mV)"]
+        MPU["mpu_sensor.cpp<br/>I2C-Lesen via electroniccats-Lib (0x68)"]
     end
 
     subgraph LIB["lib/telemetry/ — hardware-frei (nativ getestet ✅)"]
@@ -53,6 +55,9 @@ flowchart TB
     style GPSFM fill:#fff3cd
     style MAIN fill:#fff3cd
     style BMP fill:#fff3cd
+    style DS fill:#fff3cd
+    style UV fill:#fff3cd
+    style MPU fill:#fff3cd
 ```
 
 **Warum die Trennung?** Die fehleranfälligsten Teile — die exakte UBX-Byte-
@@ -138,7 +143,7 @@ board-unverifiziert ist (gelb), und was noch fehlt (weiß).
 ```mermaid
 flowchart TD
     L([loop-Iteration]) --> READ_GPS["GPS lesen<br/>🔶 TinyGPSPlus (gps_reader: feed/fill), zeitgesteuert 1 Hz"]
-    READ_GPS --> READ_SENS["Sensoren lesen (I²C/1-Wire/ADC)<br/>🔶 BMP280 (bmp_sensor) + DS18B20 (ds18b20, async) verdrahtet, Board-Test offen; ⬜ MPU-6050, UV"]
+    READ_GPS --> READ_SENS["Sensoren lesen (I²C/1-Wire/ADC)<br/>🔶 BMP280 (bmp_sensor) + DS18B20 (ds18b20, async) + GUVA-UV (uv_sensor, ADC) + MPU-6050 (mpu_sensor, IMU) verdrahtet, Board-Test offen"]
 
     READ_SENS --> PHASE["Flugphase aktualisieren<br/>✅ FlightPhaseDetector.update(alt, t)"]
     PHASE --> BUILD["TelemetryRecord befüllen<br/>🔶 in main.cpp verdrahtet"]
@@ -158,8 +163,8 @@ flowchart TD
 
     OLED{"OLED aktiv &&<br/>alle 500 ms?<br/>🔶 am Ende der loop-Iteration,<br/>UNABHÄNGIG vom GPS-Empfang"}
     OLED -->|nein| L
-    OLED -->|ja, noch PreFlight| SHOW["status_lines() aus g_rec/g_detector<br/>+ oled_show()<br/>✅ Formatierung nativ getestet<br/>🔶 Zeichnen am Board offen"]
-    OLED -->|ja, Phase-Wechsel| OFF["oled_off() — einmalig<br/>🔶 Vext-Abschaltung Board-Test offen"]
+    OLED -->|"ja, < 5 min UND noch PreFlight"| SHOW["status_lines() aus g_rec/g_detector<br/>+ oled_show()<br/>✅ Formatierung nativ getestet<br/>🔶 Zeichnen am Board offen"]
+    OLED -->|"ja, Timeout ODER Aufstieg"| OFF["oled_off() — einmalig<br/>🔶 Vext-Abschaltung Board-Test offen"]
     SHOW --> L
     OFF --> L
 
@@ -191,11 +196,17 @@ Sensorstatus) — der „Startklar?"-Check ohne Laptop am Startort. Die fünfte
 Zeile fasst die vier Sensoren als Kurzcodes zusammen (`B:ok M:-- D:-- U:--` für
 BMP280/MPU-6050/DS18B20/UV) — `ok`, wenn das jeweilige `*_ok`-Flag im
 `DisplayState` gesetzt ist, sonst `--`. `src/flight/main.cpp` befüllt inzwischen
-`bmp_ok` aus `bmp_begin()` und `ds18b20_ok` aus `ds_begin()`; `mpu_ok`/`uv_ok`
-bleiben noch **unbefüllt** (⬜), bis die jeweilige Sensor-Anbindung steht. Beim ersten Übergang in
-`Ascent` wird `oled_off()` über das `g_oled_active`-Flag genau einmal
-aufgerufen (Vext + Display aus): am fliegenden Ballon ist ein aktives Display
-unnötiger Stromverbrauch. Die Zeilen-Formatierung
+alle vier: `bmp_ok` aus `bmp_begin()`, `ds18b20_ok` aus `ds_begin()`, `uv_ok`
+aus `uv_begin()` und `mpu_ok` aus `mpu_begin()`. Das `uv_ok`-Flag ist hier eine Besonderheit: Ein reiner
+Analog-Pin lässt sich nicht wie ein Bus-Sensor „finden", daher meldet
+`uv_begin()` immer `true` (ADC konfiguriert) — `U:ok` heißt also „ADC bereit",
+nicht „GUVA nachgewiesen". Das Display wird über das `g_oled_active`-Flag genau
+einmal abgeschaltet (`oled_off()` — Vext + Display aus), sobald **entweder** seit
+dem Boot 5 min vergangen sind (`OLED_ON_MS = 1000·60·5`, gemessen an `millis()`)
+**oder** der erste Übergang nach `Ascent` erfolgt — je nachdem, was zuerst
+eintritt. In der Praxis greift meist der Timeout: Das Display dient nur dem
+Boden-Check beim Aufbau; danach ist ein aktives Display unnötiger
+Stromverbrauch. Die Zeilen-Formatierung
 (`lib/telemetry/display_status`) ist nativ getestet (✅); das tatsächliche
 Zeichnen und die Vext-Abschaltung am echten SSD1306 sind noch **nicht am Board
 verifiziert** (🔶) — Teil der TODO-Testreihenfolge.
@@ -308,6 +319,16 @@ und liefert die echte **Außentemperatur** (Spalte `temp_ext_c`, eigenes
 Loop blockieren würde. `ds_update()` stößt daher nur eine Wandlung an, holt den
 fertigen Wert beim nächsten Durchlauf ab und startet die nächste.
 
+**Warum ein gemeinsames `has_mpu`-Flag für sechs Spalten?** Genau wie beim
+BMP280: `acc_x/y/z_g` und `gyr_x/y/z_dps` stammen aus einem einzigen
+MPU-6050-Lesezyklus (`getMotion6()`) — fehlt der Sensor, fehlen alle sechs, also
+ein gemeinsames Flag. Geloggt wird in **physikalischen Einheiten** (Beschleunigung
+in g, Drehrate in °/s), umgerechnet aus den Rohwerten über die festen
+Skalierungsfaktoren der Lib-Default-Ranges (±2 g → 16384 LSB/g, ±250 °/s →
+131 LSB/(°/s)). Die Umrechnung liegt — wie bei BMP280/DS18B20 — bewusst in
+`src/flight/mpu_sensor` (nutzt die electroniccats/MPU6050-Lib direkt), gelesen
+wird **blockierend**, weil `getMotion6()` ein einzelner I²C-Burst von nur µs ist.
+
 **Warum vier einzelne `*_ok`-Flags in `DisplayState` statt eines CSV-Felds?**
 Der Sensorstatus in der OLED-Zeile ist reine **Boden-Diagnose** („ist der
 Sensor gerade ansprechbar?"), keine Telemetrie fürs CSV-Log — er gehört daher
@@ -332,10 +353,13 @@ fest benannten Sensoren bleibt (YAGNI).
 | BMP280-I²C-Anbindung (Adafruit-Lib, in loop() verdrahtet) | `src/flight/bmp_sensor` + `main.cpp` | 🔶 geschrieben, Board-Test offen |
 | DS18B20-CSV-Spalte (temp_ext_c) | `lib/telemetry/record` | 🔶 umgesetzt |
 | DS18B20-1-Wire-Anbindung (async, in loop() verdrahtet) | `src/flight/ds18b20` + `main.cpp` | 🔶 geschrieben, Board-Test offen |
-| Sensor-Lesung MPU-6050, UV | `src/flight/` + Umrechnung in `lib/` | ⬜ |
+| GUVA-UV-CSV-Spalte (uv_raw, ADC-Counts) | `lib/telemetry/record` | 🔶 umgesetzt |
+| GUVA-UV-ADC-Anbindung (GPIO36, in loop() verdrahtet) | `src/flight/uv_sensor` + `main.cpp` | 🔶 geschrieben, Board-Test offen |
+| MPU-6050-CSV-Spalten (acc_x/y/z_g, gyr_x/y/z_dps) | `lib/telemetry/record` | 🔶 umgesetzt |
+| MPU-6050-I²C-Anbindung (electroniccats-Lib, in loop() verdrahtet) | `src/flight/mpu_sensor` + `main.cpp` | 🔶 geschrieben, Board-Test offen |
 | microSD-Logging | `src/flight/sd_log` | 🔶 geschrieben, Board-Test offen |
 | OLED-Boden-Check: Zeilen-Formatierung (inkl. Sensorstatuszeile) | `lib/telemetry/display_status` | ✅ nativ getestet |
-| OLED-Sensorstatus: main.cpp befüllt `*_ok`-Flags | `src/flight/main.cpp` | ⬜ |
+| OLED-Sensorstatus: main.cpp befüllt `*_ok`-Flags | `src/flight/main.cpp` | 🔶 geschrieben, Board-Test offen |
 | OLED-Boden-Check: Zeichnen/Abschalten + Integration | `src/flight/oled` + `main.cpp` | 🔶 geschrieben, Board-Test offen |
 | LoRa-Telemetrie | `src/flight/` | ⬜ |
 | Bergungsmodus | `src/flight/` | ⬜ |
@@ -374,7 +398,7 @@ Luftfeuchte). Das war zwischenzeitlich als BME280 angenommen und umgebaut worden
 BMP280; BME280 wäre 0x60), dass das als „BME280" gekaufte Modul tatsächlich einen
 BMP280 trägt. Der BME280-Umbau wurde daraufhin zurückgebaut. Aktueller Stand:
 `TelemetryRecord` trägt `has_bmp` + die drei Spalten
-`temp_c,pressure_hpa,alt_baro_m` (11 CSV-Spalten). Die Sensor-Umrechnung wird
+`temp_c,pressure_hpa,alt_baro_m`. Die Sensor-Umrechnung wird
 **bewusst nicht** hardware-frei nachgebaut, sondern über die fertige
 Adafruit-BMP280-Bibliothek gelesen (`src/flight/bmp_sensor`, I2C-Adresse fest
 `0x76` — am Board bestätigt, der Adafruit-Default wäre 0x77 — QNH fest
@@ -387,7 +411,36 @@ Der **OLED-Boden-Check** zeigt zusätzlich eine **Sensorstatuszeile**
 (`lib/telemetry/display_status`): `DisplayState` trägt vier unabhängige
 `bool`-Flags (`bmp_ok`, `mpu_ok`, `ds18b20_ok`, `uv_ok`), `status_lines()` fasst
 sie als fünfte Zeile in Kurzcodes zusammen (`B:ok M:-- D:-- U:--`) — siehe
-`docs/superpowers/specs/2026-07-04-oled-sensorstatus-design.md`. `bmp_ok` wird
-in `src/flight/main.cpp` aus dem Rückgabewert von `bmp_begin()` befüllt;
-`mpu_ok`/`ds18b20_ok`/`uv_ok` bleiben fest `false`, bis die jeweiligen Sensoren
-überhaupt gelesen werden (siehe §6, MPU-6050/DS18B20/UV weiterhin ⬜).
+`docs/superpowers/specs/2026-07-04-oled-sensorstatus-design.md`. `bmp_ok`,
+`ds18b20_ok` und `uv_ok` werden in `src/flight/main.cpp` aus dem Rückgabewert von
+`bmp_begin()`/`ds_begin()`/`uv_begin()`/`mpu_begin()` befüllt — alle vier Flags
+sind jetzt verdrahtet.
+
+Der **GUVA-S12SD (UV)** hängt an einem reinen Analog-Pin (GPIO36, ADC1,
+input-only) und wird über den ESP32-ADC gelesen (`src/flight/uv_sensor`).
+Geloggt wird bewusst der **rohe ADC-Zählwert (0..4095)** (Spalte `uv_raw`,
+eigenes `has_uv`-Flag) — NICHT mV und NICHT ein UV-Index. Zwei Gründe: (1) die
+Umrechnung in UV-Index hängt vom konkreten Breakout (OpAmp-Verstärkung) ab und
+ist nicht verifiziert; (2) der ESP32-ADC hat am unteren Ende einen festen
+Offset — `analogReadMilliVolts()` zeigt bei null UV irreführende ~142 mV, während
+der rohe Zählwert ehrlich ~0 liefert (am Board verifiziert: `raw=0` in Ruhe,
+steigt beim Annähern an eine UV-Quelle). Die Umrechnung passiert erst am Boden
+(Python/Excel). `uv_read()` mittelt mehrere `analogRead()`-Messungen (dämpft
+ADC-Rauschen) und läuft — anders als der DS18B20 — **blockierend**, weil ein
+analogRead nur µs dauert. `main.cpp` ruft `uv_begin()` in `setup()` und
+`uv_read()` im 1-Hz-Log-Block der `loop()` auf. Sensor + ADC-Pfad sind am Board
+verifiziert (Rohwert reagiert); der volle Bereich unter direkter Sonne steht
+noch aus (🔶).
+
+Der **MPU-6050** (IMU: 3-Achsen-Beschleunigung + 3-Achsen-Drehrate) hängt am
+selben I²C-Bus wie BMP280/OLED (Adresse `0x68`) und wird über die bereits
+eingebundene Bibliothek **electroniccats/MPU6050** gelesen
+(`src/flight/mpu_sensor`). Er zeigt Lage, Rotation und Taumeln des Ballons im
+Flug. Geloggt werden sechs Werte in physikalischen Einheiten (`acc_x/y/z_g` in
+g, `gyr_x/y/z_dps` in °/s, gemeinsames `has_mpu`-Flag), umgerechnet aus den
+Rohwerten der Lib-Default-Ranges (±2 g / ±250 °/s). `mpu_begin()`
+(`initialize()` + `testConnection()`) läuft in `setup()`, `mpu_read()`
+(`getMotion6()`, blockierend, nur µs) im 1-Hz-Log-Block der `loop()`. Damit
+trägt der `TelemetryRecord` jetzt **19 CSV-Spalten**. Der Flight-Build
+kompiliert fehlerfrei; das Laufzeitverhalten (MPU-6050 gefunden + plausible
+Werte) ist **noch nicht am echten Board verifiziert** (🔶).
