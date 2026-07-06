@@ -48,12 +48,15 @@ void setup() {
     Serial.println("[flight] GPS UART2 @9600 gestartet");
 
     // KRITISCH: Höhenflug-Modus setzen, sonst GPS-Abschaltung > ~18 km.
-    Serial.println("[flight] Setze GPS Flight-Mode (Dynamic Model 6)...");
-    if (set_gps_flight_mode(Serial2)) {
-        Serial.println("[flight] >>> GPS Flight-Mode BESTAETIGT (ACK) <<<");
-    } else {
-        Serial.println("[flight] !!! GPS Flight-Mode NICHT bestaetigt — pruefen! !!!");
-    }
+    // TESTWEISE DEAKTIVIERT — ohne Flight-Mode testen (GPS bekommt keinen Fix).
+    // Vor dem echten Flug UNBEDINGT wieder aktivieren!
+    Serial.println("[flight] GPS Flight-Mode TESTWEISE DEAKTIVIERT (Standardmodus)");
+    // Serial.println("[flight] Setze GPS Flight-Mode (Dynamic Model 6)...");
+    // if (set_gps_flight_mode(Serial2)) {
+    //     Serial.println("[flight] >>> GPS Flight-Mode BESTAETIGT (ACK) <<<");
+    // } else {
+    //     Serial.println("[flight] !!! GPS Flight-Mode NICHT bestaetigt — pruefen! !!!");
+    // }
 
     // microSD initialisieren (Logging optional — Betrieb läuft auch ohne).
     g_sd_ok = sd_log_begin();
