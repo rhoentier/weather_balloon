@@ -87,6 +87,13 @@ Phase FlightPhaseDetector::update(float altitude_m, uint32_t t_ms) {
     return phase_;
 }
 
+Phase FlightPhaseDetector::update_no_altitude(uint32_t t_ms) {
+    // Update ohne neue Höhenmessung. Hilfreich wenn nur eine Quelle ausfällt
+    // (z.B. GPS kein Fix, aber Barometer läuft noch). Gibt einfach die zuletzt
+    // bekannte Phase zurück, ohne den Detektor zu ändern.
+    return phase_;
+}
+
 const char* to_string(Phase p) {
     switch (p) {
         case Phase::PreFlight: return "PREFLIGHT";

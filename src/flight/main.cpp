@@ -48,15 +48,12 @@ void setup() {
     Serial.println("[flight] GPS UART2 @9600 gestartet");
 
     // KRITISCH: Höhenflug-Modus setzen, sonst GPS-Abschaltung > ~18 km.
-    // TESTWEISE DEAKTIVIERT — ohne Flight-Mode testen (GPS bekommt keinen Fix).
-    // Vor dem echten Flug UNBEDINGT wieder aktivieren!
-    Serial.println("[flight] GPS Flight-Mode TESTWEISE DEAKTIVIERT (Standardmodus)");
-    // Serial.println("[flight] Setze GPS Flight-Mode (Dynamic Model 6)...");
-    // if (set_gps_flight_mode(Serial2)) {
-    //     Serial.println("[flight] >>> GPS Flight-Mode BESTAETIGT (ACK) <<<");
-    // } else {
-    //     Serial.println("[flight] !!! GPS Flight-Mode NICHT bestaetigt — pruefen! !!!");
-    // }
+    Serial.println("[flight] Setze GPS Flight-Mode (Dynamic Model 6)...");
+    if (set_gps_flight_mode(Serial2)) {
+        Serial.println("[flight] >>> GPS Flight-Mode BESTAETIGT (ACK) <<<");
+    } else {
+        Serial.println("[flight] !!! GPS Flight-Mode NICHT bestaetigt — pruefen! !!!");
+    }
 
     // microSD initialisieren (Logging optional — Betrieb läuft auch ohne).
     g_sd_ok = sd_log_begin();
@@ -120,14 +117,16 @@ void loop() {
 
         g_rec.t_ms = millis();
         gps_fill(g_rec);   // GPS-Felder aus TinyGPSPlus in den Record
+        bmp_read(g_rec);   // BMP280 lesen VOR Phasenerkennung (Höhe für Fallback)
 
+        // Phasenerkennung: GPS-Höhe bevorzugt, BMP280-Höhe als Fallback.
         if (g_rec.has_fix) {
             g_rec.phase = g_detector.update(g_rec.alt_gps_m, g_rec.t_ms);
+        } else if (g_rec.has_bmp) {
+            g_rec.phase = g_detector.update(g_rec.alt_baro_m, g_rec.t_ms);
         } else {
-            g_rec.phase = g_detector.phase();  // ohne Fix letzte Phase halten
+            g_rec.phase = g_detector.update_no_altitude(g_rec.t_ms);
         }
-
-        bmp_read(g_rec);
         ds_update(g_rec);   // non-blocking: übernimmt Wert nur, wenn Wandlung fertig
         uv_read(g_rec);
         mpu_read(g_rec);

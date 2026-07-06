@@ -41,9 +41,16 @@ class FlightPhaseDetector {
 public:
     explicit FlightPhaseDetector(const PhaseConfig& cfg = PhaseConfig{});
 
-    // Einen neuen Messpunkt verarbeiten. altitude_m = Höhe (GPS oder baro),
-    // t_ms = monotone Zeit in Millisekunden. Gibt die aktuelle Phase zurück.
+    // Einen neuen Messpunkt verarbeiten. altitude_m = Höhe (GPS oder baro).
+    // Gibt es einen Wert, wird die Phase aktualisiert. t_ms = monotone Zeit in ms.
+    // Rückgabe: aktuelle Phase.
+    // Wenn kein altitude_m verfügbar, nutze update_no_altitude() stattdessen.
     Phase update(float altitude_m, uint32_t t_ms);
+
+    // Aktualisiert nur die Zeit, ohne neue Höhe. Für Zyklen ohne verfügbaren
+    // Höhenmesswert (z.B. GPS und Barometer beide fehlen). Gibt die zuletzt
+    // bekannte Phase zurück, blockiert aber nicht den Ausfall von Höhendaten.
+    Phase update_no_altitude(uint32_t t_ms);
 
     Phase phase() const { return phase_; }
 
