@@ -14,9 +14,11 @@ static TinyGPSPlus gps;
 // letzten Wert (die Lib committet die Position nur bei einem GGA mit Fix).
 // Über location.age() (ms seit letztem Update) erzwingen wir, dass ein
 // verlorener Fix wieder als „kein Fix" zählt → leere CSV-Felder statt still
-// weitergeschriebener, veralteter Position. Bei 1-Hz-GPS reicht ein Fenster,
-// das einen ausgefallenen Satz überbrückt.
-static const uint32_t GPS_MAX_AGE_MS = 2000;
+// weitergeschriebener, veralteter Position. Bei 1-Hz-GPS überbrückt das
+// 5-s-Fenster bis zu vier ausgefallene Sätze, bevor der Fix als veraltet gilt
+// (resilient gegen kurze Empfangsaussetzer, während weiter jede Sekunde
+// geloggt wird).
+static const uint32_t GPS_MAX_AGE_MS = 5000;
 
 void gps_feed(Stream& serial) {
     while (serial.available()) {

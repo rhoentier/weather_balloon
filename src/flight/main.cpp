@@ -35,7 +35,7 @@ static uint32_t g_last_oled_ms = 0;              // letzte OLED-Aktualisierung
 static const uint32_t OLED_REFRESH_MS = 500;     // OLED höchstens alle 500 ms neu zeichnen
 static const uint32_t OLED_ON_MS = 1000UL * 60 * 5;  // Display am Boden 5 min an, dann aus
 static uint32_t g_last_log_ms = 0;               // letzte CSV-Zeile geschrieben
-static const uint32_t LOG_INTERVAL_MS = 5000;    // eine CSV-Zeile alle 5 s (0,2 Hz)
+static const uint32_t LOG_INTERVAL_MS = 1000;    // eine CSV-Zeile pro Sekunde (1 Hz)
 
 void setup() {
     Serial.begin(115200);
