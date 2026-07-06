@@ -16,8 +16,12 @@ void gps_feed(Stream& serial) {
 
 void gps_fill(TelemetryRecord& r) {
     // Fix-Qualität immer übernehmen (0 = kein Fix ist ein echter Messwert).
-    r.fix_quality = static_cast<uint8_t>(gps.location.FixQuality());
-    r.has_fix = gps.location.isValid() && gps.location.FixQuality() > 0;
+    // ACHTUNG: TinyGPSPlus' FixQuality() liefert das enum Quality, dessen Werte
+    // ASCII-Ziffern sind (Invalid='0'=48, GPS='1'=49, ...). Für die rohe 0/1/2..-
+    // Zahl im CSV also '0' abziehen — sonst landet 48/49/50 in der Spalte.
+    int q = gps.location.FixQuality() - '0';
+    r.fix_quality = static_cast<uint8_t>(q);
+    r.has_fix = gps.location.isValid() && q > 0;
 
     // Satelliten: nur bei gültigem Feld übernehmen, sonst 0.
     r.sats = gps.satellites.isValid()
