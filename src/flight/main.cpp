@@ -55,6 +55,12 @@ void setup() {
         Serial.println("[flight] !!! GPS Flight-Mode NICHT bestaetigt — pruefen! !!!");
     }
 
+    // LoRa (SX1276) deselektieren: sitzt am selben SPI-Bus wie die SD-Karte.
+    // Ohne dieses HIGH bleibt NSS floating/LOW und der Chip haengt am Bus mit,
+    // was die SD-Kommunikation stoert (LoRa wird in dieser Firmware nicht genutzt).
+    pinMode(PIN_LORA_CS, OUTPUT);
+    digitalWrite(PIN_LORA_CS, HIGH);
+
     // microSD initialisieren (Logging optional — Betrieb läuft auch ohne).
     g_sd_ok = sd_log_begin();
 

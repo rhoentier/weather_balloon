@@ -10,6 +10,16 @@ static bool s_ready = false;
 static const char* kLogPath = "/flight.csv";
 
 bool sd_log_begin() {
+    // Heltec V2 nutzt für den LoRa/SD-SPI-Bus NICHT die ESP32-VSPI-Standardpins
+    // (SCK18/MISO19/MOSI23) -> Pins explizit setzen, sonst spricht SD.begin()
+    // ins Leere (f_mount-Fehler (3), egal wie sauber verkabelt ist).
+    SPI.begin(PIN_SPI_SCK, PIN_SPI_MISO, PIN_SPI_MOSI, PIN_SD_CS);
+
+    // Manche HW-125-Module brauchen nach Power-On kurz Zeit, bis die
+    // Karte bereit ist (Anlaufzeit intern). Ohne Verzögerung schlägt
+    // SD.begin() mit einem I/O-Fehler fehl, obwohl Verkabelung + Karte ok sind.
+    delay(250);
+
     if (!SD.begin(PIN_SD_CS)) {
         Serial.println("[flight] !!! microSD nicht gefunden — Logging aus, Betrieb laeuft !!!");
         s_ready = false;

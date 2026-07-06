@@ -29,7 +29,34 @@
 #define PIN_UV_ADC      36   // analogRead(); mehrfach mitteln
 
 // --- microSD (SPI, Bus geteilt mit LoRa: SCK5/MISO19/MOSI27) ---
+// WICHTIG: Das sind NICHT die ESP32-VSPI-Standardpins (SCK18/MISO19/MOSI23)!
+// Ohne explizites SPI.begin(SCK,MISO,MOSI,CS) nutzt die SD-Lib die falschen
+// Default-Pins und die Karte antwortet nie (f_mount-Fehler (3), unabhängig
+// von der Verkabelung).
+//
+// HW-125-MODUL: VCC an 5V anschließen, NICHT 3,3V! Das Modul hat einen
+// eigenen Onboard-Regler auf 3,3V für den Kartenchip. Mit 3,3V-Eingang hat
+// der Regler zu wenig Spielraum (Dropout) -> Karte bekommt instabile
+// Versorgung -> wechselnde f_mount-Fehler (1)/(13), obwohl Verkabelung und
+// Formatierung korrekt sind. Am Board verifiziert: mit 5V läuft es stabil.
+//
+// Verdrahtung HW-125 <-> Heltec V2:
+//   HW-125 VCC  -> 5V
+//   HW-125 GND  -> GND
+//   HW-125 MISO -> GPIO 19
+//   HW-125 MOSI -> GPIO 27
+//   HW-125 SCK  -> GPIO 5
+//   HW-125 CS   -> GPIO 13
+#define PIN_SPI_SCK      5
+#define PIN_SPI_MISO    19
+#define PIN_SPI_MOSI    27
 #define PIN_SD_CS       13   // eigener Chip-Select (LoRa-CS = 18)
+
+// --- LoRa-Chip-Select (board-intern, SX1276) ---
+// LoRa wird (noch) nicht genutzt, sitzt aber am selben SPI-Bus wie die SD-Karte.
+// Ohne explizites HIGH bleibt NSS undefiniert/LOW -> SX1276 haengt am Bus mit
+// und stoert die SD-Kommunikation. Muss VOR jedem SD-Zugriff HIGH sein.
+#define PIN_LORA_CS     18
 
 // --- Onboard-Status-LED ---
 #define PIN_LED         25

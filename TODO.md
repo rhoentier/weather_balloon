@@ -32,10 +32,10 @@ Detaillierter Umsetzungsplan auf Basis des Konzepts. Inhalt:
   - [x] Flugphasen-Erkennung (PreFlight / Ascent / Descent / Landed) — `lib/telemetry/flight_phase`, nativ getestet
   - [ ] Bergungsmodus (Spar-Logging + GPS-Bake)
   - [ ] Watchdog / Robustheit
-- [ ] **Bodenstations-Software** (Empfänger-Firmware + Laptop-Anzeige)
+- [x] **Bodenstations-Software** (Empfänger-Firmware + Laptop-Anzeige)
 - [ ] **Testreihenfolge** festlegen:
   - [x] GPS-Flight-Mode am Boden verifizieren — UBX-ACK kommt am NEO-6M zurück (Crossover TX↔RX)
-  - [ ] LoRa-Reichweitentest
+  - [x] LoRa-Reichweitentest
   - [ ] microSD-Modul am Heltec: 3,3 V vs. 5 V testen, Schreiben/Lesen verifizieren (FAT32-Karte)
   - [ ] **⚠️ Batteriespannung messen** (4× Lithium-AA frisch + unter Last + kalt) → muss am 5V-Pin
         **zwischen 4,7 V und 6,0 V** bleiben (Heltec-Datenblatt). Frische L91 liefern ggf. >6 V →
