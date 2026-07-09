@@ -567,6 +567,7 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
 
     if pres_flight.empty:
         pres_alt_svg = "<p style='color:var(--muted)'>Keine Luftdruckdaten.</p>"
+        pres_parabola_svg = ""
     else:
         p_lo = 0
         p_hi = float(pres_flight["pressure_hpa"].max()) * 1.05
@@ -641,7 +642,7 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
             f'</svg>'
         )
 
-    # ── Beschleunigung (IMU-Betrag) ────────────────────────────────────────────
+# ── Beschleunigung (IMU-Betrag) ────────────────────────────────────────────
     imu_cols = ["acc_x_g", "acc_y_g", "acc_z_g", "gyr_x_dps", "gyr_y_dps", "gyr_z_dps"]
     df_imu = df[["t_ms_cont", "phase", "alt_baro_m"] + imu_cols].copy()
     df_imu["t_plot"] = df_imu["t_ms_cont"] + offset_ms
@@ -768,6 +769,99 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
                           t0_t, t1_t, acc_data, smoothing_window=10)
     gyr_svg = _imu_graph(gyr_data, "gyr_mag", "Drehraten |gyr|", "°/s", "#9b59b6",
                           t0_t, t1_t, gyr_data, smoothing_window=10)
+
+        # Graph 2: simulierter Verlauf (Parabel) — Druck + Höhe
+    # Abstieg als Interpolationsbasis: Druck(Höhe)
+    desc_ref = df[df["phase"] == "DESCENT"][["alt_baro_m", "pressure_hpa"]].dropna().sort_values("alt_baro_m")
+    import numpy as np
+    interp_alt  = desc_ref["alt_baro_m"].values
+    interp_pres = desc_ref["pressure_hpa"].values
+
+    def _sim_pressure(alt_m):
+        return float(np.interp(alt_m, interp_alt, interp_pres))
+
+    # Simulierte Zeitreihe: sim. PREFLIGHT + sim. ASCENT aus df_sim
+    df_sim_p = df_sim[df_sim["phase"].isin(["simulated_preflight", "simulated_ascent"])].copy()
+    df_sim_p["t_plot"]      = df_sim_p["t_wall_ms"]
+    df_sim_p["pressure_sim"]= df_sim_p["alt_baro_m"].apply(_sim_pressure)
+
+    # Zeitachse: von Boardstart (df_sim) bis Ende der echten Daten
+    t0_p2 = int(df_sim_p["t_plot"].min())
+    t1_p2 = t1_t
+    PR_P2 = 52
+
+    def tx_p2(t):  return PL + (t - t0_p2) / (t1_p2 - t0_p2) * (W2 - PL - PR_P2)
+    def ty_p2(v):  return PT + (1 - (v - p_lo) / (p_hi - p_lo)) * (H2 - PT - PB)
+    def ty_ap2(a): return PT + (1 - (a - 0) / (a_hi_p - 0)) * (H2 - PT - PB)
+
+    xt_p2 = ""
+    tk = (t0_p2 // (3600*1000)) * (3600*1000)
+    while tk <= t1_p2:
+        if tk >= t0_p2:
+            x = tx_p2(tk)
+            xt_p2 += (f'<line x1="{x:.1f}" y1="{PT}" x2="{x:.1f}" y2="{H2-PB}" '
+                      f'stroke="var(--grid)" stroke-width="1"/>'
+                      f'<text x="{x:.1f}" y="{H2-4}" text-anchor="middle" '
+                      f'font-size="10" fill="var(--muted)">{ms_to_hhmm(tk)}</text>')
+        tk += 3600*1000
+
+    yt_p2 = ""
+    for i in range(5):
+        v    = p_lo + i * (p_hi - p_lo) / 4
+        ypos = ty_p2(v)
+        yt_p2 += (f'<line x1="{PL}" y1="{ypos:.1f}" x2="{W2-PR_P2}" y2="{ypos:.1f}" '
+                  f'stroke="var(--grid)" stroke-width="1"/>'
+                  f'<text x="{PL-4}" y="{ypos+4:.1f}" text-anchor="end" '
+                  f'font-size="10" fill="var(--muted)">{v:.0f}</text>')
+
+    yt_ap2 = ""
+    for i in range(5):
+        a    = i * a_hi_p / 4
+        ypos = ty_ap2(a)
+        yt_ap2 += (f'<text x="{W2-PR_P2+6}" y="{ypos+4:.1f}" text-anchor="start" '
+                   f'font-size="10" fill="var(--muted)">{a/1000:.0f}k</text>')
+
+    def _path2(sub, col, ty_fn, color, dashed=False):
+        pts = [(tx_p2(r["t_plot"]), ty_fn(r[col])) for _, r in sub.iterrows() if pd.notna(r[col])]
+        if len(pts) < 2: return ""
+        d = "M " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+        dash = ' stroke-dasharray="5,3"' if dashed else ""
+        return f'<path d="{d}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linejoin="round"{dash}/>'
+
+    # Echte Kurven
+    sub_p2  = pres_flight.copy()
+    sub_ap2 = pres_flight[pres_flight["alt_baro_m"].notna()].copy()
+    if len(sub_p2)  > 600: sub_p2  = sub_p2.iloc[::len(sub_p2)//600]
+    if len(sub_ap2) > 600: sub_ap2 = sub_ap2.iloc[::len(sub_ap2)//600]
+
+    # Simulierte Kurven
+    sub_sim_p = df_sim_p.copy()
+    if len(sub_sim_p) > 300: sub_sim_p = sub_sim_p.iloc[::len(sub_sim_p)//300]
+
+    p_real_p   = _path2(sub_p2,    "pressure_hpa",  ty_p2,  "#e05c00")
+    p_real_alt = _path2(sub_ap2,   "alt_baro_m",    ty_ap2, "#2a78d6",  dashed=True)
+    p_sim_p    = _path2(sub_sim_p, "pressure_sim",  ty_p2,  "#e05c00",  dashed=True)
+    p_sim_alt  = _path2(sub_sim_p, "alt_baro_m",    ty_ap2, "#2a78d6",  dashed=True)
+
+    leg_p2 = (
+        '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;">'
+        '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#e05c00" stroke-width="2"/></svg>'
+        '<span style="font-size:12px;color:var(--secondary)">Luftdruck (hPa, links)</span></span>'
+        '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;">'
+        '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#e05c00" stroke-width="2" stroke-dasharray="5,3"/></svg>'
+        '<span style="font-size:12px;color:var(--secondary)">Luftdruck simuliert (links)</span></span>'
+        '<span style="display:inline-flex;align-items:center;gap:4px;">'
+        '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#2a78d6" stroke-width="2" stroke-dasharray="5,3"/></svg>'
+        '<span style="font-size:12px;color:var(--secondary)">Höhe (m, rechts)</span></span>'
+    )
+    pres_parabola_svg = (
+        f'<div style="margin-bottom:6px">{leg_p2}</div>'
+        f'<svg viewBox="0 0 {W2} {H2}" width="100%" style="display:block;overflow:visible">'
+        f'{yt_p2}{xt_p2}{p_real_p}{p_sim_p}{p_real_alt}{p_sim_alt}{yt_ap2}'
+        f'<line x1="{PL}" y1="{PT}" x2="{PL}" y2="{H2-PB}" stroke="var(--grid)" stroke-width="1"/>'
+        f'<line x1="{W2-PR_P2}" y1="{PT}" x2="{W2-PR_P2}" y2="{H2-PB}" stroke="var(--grid)" stroke-width="1"/>'
+        f'</svg>'
+    )
 
     # ── UV-Sensor ─────────────────────────────────────────────────────────────
     df_uv = df[["t_ms_cont", "phase", "uv_raw", "alt_baro_m"]].copy()
@@ -1150,8 +1244,12 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
   <tbody>{pres_table_rows}</tbody>
 </table>
 
-<div style="background:var(--surface);border:1px solid var(--grid);border-radius:8px;padding:12px 8px 4px;">
+<div style="background:var(--surface);border:1px solid var(--grid);border-radius:8px;padding:12px 8px 4px;margin-bottom:16px;">
   {pres_alt_svg}
+</div>
+
+<div style="background:var(--surface);border:1px solid var(--grid);border-radius:8px;padding:12px 8px 4px;">
+  {pres_parabola_svg}
 </div>
 
 <!-- 5. UV-Sensor -->
