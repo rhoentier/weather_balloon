@@ -641,6 +641,134 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
             f'</svg>'
         )
 
+    # ── Beschleunigung (IMU-Betrag) ────────────────────────────────────────────
+    imu_cols = ["acc_x_g", "acc_y_g", "acc_z_g", "gyr_x_dps", "gyr_y_dps", "gyr_z_dps"]
+    df_imu = df[["t_ms_cont", "phase", "alt_baro_m"] + imu_cols].copy()
+    df_imu["t_plot"] = df_imu["t_ms_cont"] + offset_ms
+    df_imu = df_imu.sort_values("t_plot")
+
+    acc_data  = df_imu[df_imu["acc_x_g"].notna()]
+    gyr_data  = df_imu[df_imu["gyr_x_dps"].notna()]
+
+    if not acc_data.empty:
+        acc_data = acc_data.copy()
+        acc_data["acc_mag"] = (acc_data["acc_x_g"]**2 + acc_data["acc_y_g"]**2 + acc_data["acc_z_g"]**2)**0.5
+    if not gyr_data.empty:
+        gyr_data = gyr_data.copy()
+        gyr_data["gyr_mag"] = (gyr_data["gyr_x_dps"]**2 + gyr_data["gyr_y_dps"]**2 + gyr_data["gyr_z_dps"]**2)**0.5
+
+    def _imu_stat_row(label, series):
+        s = series.dropna()
+        if s.empty:
+            return f'<tr><td>{label}</td><td colspan="5" style="color:var(--muted)">keine Daten</td></tr>'
+        return (f'<tr><td>{label}</td><td>{len(s):,}</td>'
+                f'<td>{s.min():.2f}</td><td>{s.max():.2f}</td>'
+                f'<td>{s.median():.2f}</td><td>{s.mean():.2f}</td></tr>')
+
+    acc_table_rows = _imu_stat_row("Beschleunigung |acc| (g)", acc_data["acc_mag"]) if not acc_data.empty else _imu_stat_row("Beschleunigung |acc| (g)", pd.Series(dtype=float))
+    gyr_table_rows = _imu_stat_row("Drehraten |gyr| (°/s)", gyr_data["gyr_mag"]) if not gyr_data.empty else _imu_stat_row("Drehraten |gyr| (°/s)", pd.Series(dtype=float))
+
+    # ── Common dual-axis IMU graph builder ──────────────────────────────────────
+    def _imu_graph(mag_series, mag_col, mag_label, mag_unit, mag_color,
+                   t0_src, t1_src, df_src, smoothing_window=10):
+        """
+        Baut einen SVG-Graph: Betrag vs Zeit (links), Höhe gestrichelt (rechts).
+        matching pattern of temp/pressure/uv graphs.
+        """
+        sub = df_src[df_src[mag_col].notna()].copy()
+        alt_sub = df_src[df_src["alt_baro_m"].notna()].copy()
+        if sub.empty:
+            return "<p style='color:var(--muted)'>Keine Daten.</p>"
+
+        W3, H3 = 860, 240
+        PL3, PR3, PT3, PB3 = 46, 52, 16, 28
+        t0_i = int(sub["t_plot"].iloc[0]) if len(sub) else t0_src
+        t1_i = int(sub["t_plot"].iloc[-1]) if len(sub) else t1_src
+
+        mag_lo = 0
+        mag_hi = float(sub[mag_col].max()) * 1.15
+        a_hi_i = float(alt_sub["alt_baro_m"].dropna().max()) * 1.05 if alt_sub["alt_baro_m"].notna().any() else 10000
+
+        def tx_i(t): return PL3 + (t - t0_i) / (t1_i - t0_i) * (W3 - PL3 - PR3)
+        def ty_mag(v): return PT3 + (1 - (v - mag_lo) / (mag_hi - mag_lo)) * (H3 - PT3 - PB3)
+        def ty_alt_i(a): return PT3 + (1 - (a - 0) / (a_hi_i - 0)) * (H3 - PT3 - PB3)
+
+        # Smooth with rolling mean
+        sub_plot = sub.copy()
+        if len(sub_plot) > smoothing_window:
+            sub_plot[mag_col] = sub_plot[mag_col].rolling(window=smoothing_window, center=True, min_periods=1).mean()
+
+        # Downsample for SVG path
+        if len(sub_plot) > 600:
+            sub_ds = sub_plot.iloc[::len(sub_plot)//600].copy()
+        else:
+            sub_ds = sub_plot
+        if len(alt_sub) > 600:
+            alt_ds = alt_sub.iloc[::len(alt_sub)//600].copy()
+        else:
+            alt_ds = alt_sub
+
+        # X ticks
+        xt_i = ""
+        tk = (t0_i // (3600*1000)) * (3600*1000)
+        while tk <= t1_i:
+            if tk >= t0_i:
+                x = tx_i(tk)
+                xt_i += (f'<line x1="{x:.1f}" y1="{PT3}" x2="{x:.1f}" y2="{H3-PB3}" '
+                         f'stroke="var(--grid)" stroke-width="1"/>'
+                         f'<text x="{x:.1f}" y="{H3-4}" text-anchor="middle" '
+                         f'font-size="10" fill="var(--muted)">{ms_to_hhmm(tk)}</text>')
+            tk += 3600*1000
+
+        # Y ticks left (magnitude)
+        yt_mag = ""
+        for i in range(5):
+            v    = mag_lo + i * (mag_hi - mag_lo) / 4
+            ypos = ty_mag(v)
+            yt_mag += (f'<line x1="{PL3}" y1="{ypos:.1f}" x2="{W3-PR3}" y2="{ypos:.1f}" '
+                       f'stroke="var(--grid)" stroke-width="1"/>'
+                       f'<text x="{PL3-4}" y="{ypos+4:.1f}" text-anchor="end" '
+                       f'font-size="10" fill="var(--muted)">{v:.1f}</text>')
+
+        # Y ticks right (altitude)
+        yt_alt_i = ""
+        for i in range(5):
+            a    = i * a_hi_i / 4
+            ypos = ty_alt_i(a)
+            yt_alt_i += (f'<text x="{W3-PR3+6}" y="{ypos+4:.1f}" text-anchor="start" '
+                         f'font-size="10" fill="var(--muted)">{a/1000:.0f}k</text>')
+
+        # Paths
+        pts_mag = [(tx_i(r["t_plot"]), ty_mag(r[mag_col])) for _, r in sub_ds.iterrows() if pd.notna(r[mag_col])]
+        p_mag_d = "M " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in pts_mag) if len(pts_mag) >= 2 else ""
+        p_mag   = f'<path d="{p_mag_d}" fill="none" stroke="{mag_color}" stroke-width="1.5" stroke-linejoin="round"/>' if p_mag_d else ""
+
+        pts_alt = [(tx_i(r["t_plot"]), ty_alt_i(r["alt_baro_m"])) for _, r in alt_ds.iterrows() if pd.notna(r["alt_baro_m"])]
+        p_alt_d = "M " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in pts_alt) if len(pts_alt) >= 2 else ""
+        p_alt   = f'<path d="{p_alt_d}" fill="none" stroke="#2a78d6" stroke-width="1.5" stroke-dasharray="5,3" stroke-linejoin="round"/>' if p_alt_d else ""
+
+        leg = (
+            f'<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;">'
+            f'<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="{mag_color}" stroke-width="2"/></svg>'
+            f'<span style="font-size:12px;color:var(--secondary)">{mag_label} ({mag_unit}, links)</span></span>'
+            f'<span style="display:inline-flex;align-items:center;gap:4px;">'
+            f'<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#2a78d6" stroke-width="2" stroke-dasharray="5,3"/></svg>'
+            f'<span style="font-size:12px;color:var(--secondary)">Höhe (m, rechts)</span></span>'
+        )
+        return (
+            f'<div style="margin-bottom:6px">{leg}</div>'
+            f'<svg viewBox="0 0 {W3} {H3}" width="100%" style="display:block;overflow:visible">'
+            f'{yt_mag}{xt_i}{p_mag}{p_alt}{yt_alt_i}'
+            f'<line x1="{PL3}" y1="{PT3}" x2="{PL3}" y2="{H3-PB3}" stroke="var(--grid)" stroke-width="1"/>'
+            f'<line x1="{W3-PR3}" y1="{PT3}" x2="{W3-PR3}" y2="{H3-PB3}" stroke="var(--grid)" stroke-width="1"/>'
+            f'</svg>'
+        )
+
+    acc_svg = _imu_graph(acc_data, "acc_mag", "Beschleunigung |acc|", "g", "#e67e22",
+                          t0_t, t1_t, acc_data, smoothing_window=10)
+    gyr_svg = _imu_graph(gyr_data, "gyr_mag", "Drehraten |gyr|", "°/s", "#9b59b6",
+                          t0_t, t1_t, gyr_data, smoothing_window=10)
+
     # ── UV-Sensor ─────────────────────────────────────────────────────────────
     df_uv = df[["t_ms_cont", "phase", "uv_raw", "alt_baro_m"]].copy()
     df_uv["t_plot"] = df_uv["t_ms_cont"] + offset_ms
@@ -1037,8 +1165,30 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
   {uv_alt_svg}
 </div>
 
-<!-- 6. Min/Max -->
-<h2>6. Sensor-Wertebereiche</h2>
+<!-- 6. Beschleunigung -->
+<h2>6. Beschleunigung (MPU-6050)</h2>
+<table style="margin-bottom:20px">
+  <thead><tr><th>Sensor</th><th>n</th><th>Min</th><th>Max</th><th>Median</th><th>Ø</th></tr></thead>
+  <tbody>{acc_table_rows}</tbody>
+</table>
+
+<div style="background:var(--surface);border:1px solid var(--grid);border-radius:8px;padding:12px 8px 4px;">
+  {acc_svg}
+</div>
+
+<!-- 7. Drehraten -->
+<h2>7. Drehraten (MPU-6050)</h2>
+<table style="margin-bottom:20px">
+  <thead><tr><th>Sensor</th><th>n</th><th>Min</th><th>Max</th><th>Median</th><th>Ø</th></tr></thead>
+  <tbody>{gyr_table_rows}</tbody>
+</table>
+
+<div style="background:var(--surface);border:1px solid var(--grid);border-radius:8px;padding:12px 8px 4px;">
+  {gyr_svg}
+</div>
+
+<!-- 8. Min/Max -->
+<h2>8. Sensor-Wertebereiche</h2>
 <table>
   <thead><tr><th>Sensor</th><th>Einheit</th><th>n</th><th>Min</th><th>Ø</th><th>Max</th></tr></thead>
   <tbody>{mm_rows}</tbody>
