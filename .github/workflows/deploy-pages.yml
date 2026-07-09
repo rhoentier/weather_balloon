@@ -38,12 +38,18 @@ jobs:
         run: pip install -r analytics/requirements.txt
 
       - name: Generate report
-        run: python analytics/report.py analytics/flight.csv
+        working-directory: analytics
+        run: python report.py flight.csv
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p pages-output
+          cp analytics/report.html pages-output/index.html
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: analytics/report.html
+          path: pages-output
 
       - name: Deploy to GitHub Pages
         id: deployment
