@@ -6,3 +6,6 @@
 .vscode/ipch
 .sdd/
 logs/
+analytics/__pycache__/
+analytics/.venv/
+analytics/report.html

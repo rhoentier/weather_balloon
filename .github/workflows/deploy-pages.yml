@@ -1,0 +1,50 @@
+name: Deploy Flight Report as GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'analytics/flight.csv'
+      - 'analytics/report.py'
+      - 'analytics/read_csv.py'
+      - '.github/workflows/deploy-pages.yml'
+
+  # Manuelles Triggern aus der GitHub UI
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Nur ein Job zur Zeit auf pages
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r analytics/requirements.txt
+
+      - name: Generate report
+        run: python analytics/report.py analytics/flight.csv
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: analytics/report.html
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
