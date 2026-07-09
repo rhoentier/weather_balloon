@@ -416,7 +416,7 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
     # Y-Bereich Temperatur: gemeinsam für beide Kurven
     all_temps = pd.concat([df_temp["temp_ext_c"].dropna(), df_temp["temp_c"].dropna()])
     if all_temps.empty:
-        temp_cmp_svg = temp_alt_svg = "<p style='color:var(--muted)'>Keine Temperaturdaten.</p>"
+        temp_cmp_svg = temp_sim_svg = temp_alt_svg = "<p style='color:var(--muted)'>Keine Temperaturdaten.</p>"
     else:
         temp_lo = float(all_temps.min()) - 5
         temp_hi = float(all_temps.max()) + 5
@@ -486,6 +486,95 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
             f'<svg viewBox="0 0 {W2} {H2}" width="100%" style="display:block;overflow:visible">'
             f'{yt}{xt}{p_ext}{p_int}'
             f'<line x1="{PL}" y1="{PT}" x2="{PL}" y2="{H2-PB}" stroke="var(--grid)" stroke-width="1"/>'
+            f'</svg>'
+        )
+
+        # Graph 1b: simulierter Temperaturverlauf (Interpolation aus Abstieg)
+        import numpy as np
+        desc_ref_t = df[df["phase"] == "DESCENT"][["alt_baro_m", "temp_ext_c", "temp_c"]].dropna().sort_values("alt_baro_m")
+        interp_alt_t   = desc_ref_t["alt_baro_m"].values
+        interp_ext_t   = desc_ref_t["temp_ext_c"].values
+        interp_int_t   = desc_ref_t["temp_c"].values
+
+        df_sim_t = df_sim[df_sim["phase"].isin(["simulated_preflight", "simulated_ascent"])].copy()
+        df_sim_t["t_plot"]    = df_sim_t["t_wall_ms"]
+        df_sim_t["temp_ext_sim"] = df_sim_t["alt_baro_m"].apply(lambda a: float(np.interp(a, interp_alt_t, interp_ext_t)))
+        df_sim_t["temp_int_sim"] = df_sim_t["alt_baro_m"].apply(lambda a: float(np.interp(a, interp_alt_t, interp_int_t)))
+
+        t0_ts  = int(df_sim_t["t_plot"].min())
+        t1_ts  = t1_t
+        PR_TS  = 52
+        a_hi_ts = float(df_temp["alt_baro_m"].dropna().max()) * 1.05
+
+        def tx_ts(t):   return PL + (t - t0_ts) / (t1_ts - t0_ts) * (W2 - PL - PR_TS)
+        def ty_ts(v):   return PT + (1 - (v - temp_lo) / (temp_hi - temp_lo)) * (H2 - PT - PB)
+        def ty_alt_ts(a): return PT + (1 - a / a_hi_ts) * (H2 - PT - PB)
+
+        xt_ts = _x_ticks(tx_ts, t0_ts, t1_ts, H2)
+
+        yt_ts = ""
+        for i in range(5):
+            v    = temp_lo + i * (temp_hi - temp_lo) / 4
+            ypos = ty_ts(v)
+            yt_ts += (f'<line x1="{PL}" y1="{ypos:.1f}" x2="{W2-PR_TS}" y2="{ypos:.1f}" '
+                      f'stroke="var(--grid)" stroke-width="1"/>'
+                      f'<text x="{PL-4}" y="{ypos+4:.1f}" text-anchor="end" '
+                      f'font-size="10" fill="var(--muted)">{v:.0f}°</text>')
+
+        yt_alt_ts = ""
+        for i in range(5):
+            a    = i * a_hi_ts / 4
+            ypos = ty_alt_ts(a)
+            yt_alt_ts += (f'<text x="{W2-PR_TS+6}" y="{ypos+4:.1f}" text-anchor="start" '
+                          f'font-size="10" fill="var(--muted)">{a/1000:.0f}k</text>')
+
+        def _mtp_ts(sub, col, ty_fn, color, dashed=False):
+            pts = [(tx_ts(r["t_plot"]), ty_fn(r[col])) for _, r in sub.iterrows() if pd.notna(r[col])]
+            if len(pts) < 2: return ""
+            d = "M " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+            dash = ' stroke-dasharray="5,3"' if dashed else ""
+            return f'<path d="{d}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linejoin="round"{dash}/>'
+
+        sub_ext2 = df_temp[df_temp["temp_ext_c"].notna()].copy()
+        sub_int2 = df_temp[df_temp["temp_c"].notna()].copy()
+        sub_alt_ts = df_temp[df_temp["alt_baro_m"].notna()].copy()
+        if len(sub_ext2)   > 600: sub_ext2   = sub_ext2.iloc[::len(sub_ext2)//600]
+        if len(sub_int2)   > 600: sub_int2   = sub_int2.iloc[::len(sub_int2)//600]
+        if len(sub_alt_ts) > 600: sub_alt_ts = sub_alt_ts.iloc[::len(sub_alt_ts)//600]
+
+        sub_sim_t = df_sim_t.copy()
+        if len(sub_sim_t) > 300: sub_sim_t = sub_sim_t.iloc[::len(sub_sim_t)//300]
+
+        p_ext2      = _mtp_ts(sub_ext2,   "temp_ext_c",    ty_ts,     "#e05c00")
+        p_int2      = _mtp_ts(sub_int2,   "temp_c",        ty_ts,     "#2a78d6")
+        p_sim_ext   = _mtp_ts(sub_sim_t,  "temp_ext_sim",  ty_ts,     "#e05c00", dashed=True)
+        p_sim_int   = _mtp_ts(sub_sim_t,  "temp_int_sim",  ty_ts,     "#2a78d6", dashed=True)
+        p_alt_ts    = _mtp_ts(sub_alt_ts, "alt_baro_m",    ty_alt_ts, "#1baf7a", dashed=True)
+        p_sim_alt_ts = _mtp_ts(sub_sim_t, "alt_baro_m",   ty_alt_ts, "#1baf7a", dashed=True)
+
+        leg_cmp_sim = (
+            '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;">'
+            '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#e05c00" stroke-width="2"/></svg>'
+            '<span style="font-size:12px;color:var(--secondary)">Außen</span></span>'
+            '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;">'
+            '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#e05c00" stroke-width="2" stroke-dasharray="5,3"/></svg>'
+            '<span style="font-size:12px;color:var(--secondary)">Außen simuliert</span></span>'
+            '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;">'
+            '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#2a78d6" stroke-width="2"/></svg>'
+            '<span style="font-size:12px;color:var(--secondary)">Innen</span></span>'
+            '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;">'
+            '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#2a78d6" stroke-width="2" stroke-dasharray="5,3"/></svg>'
+            '<span style="font-size:12px;color:var(--secondary)">Innen simuliert</span></span>'
+            '<span style="display:inline-flex;align-items:center;gap:4px;">'
+            '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#1baf7a" stroke-width="2" stroke-dasharray="5,3"/></svg>'
+            '<span style="font-size:12px;color:var(--secondary)">Höhe (m, rechts)</span></span>'
+        )
+        temp_sim_svg = (
+            f'<div style="margin-bottom:6px">{leg_cmp_sim}</div>'
+            f'<svg viewBox="0 0 {W2} {H2}" width="100%" style="display:block;overflow:visible">'
+            f'{yt_ts}{xt_ts}{p_sim_alt_ts}{p_alt_ts}{p_sim_ext}{p_sim_int}{p_ext2}{p_int2}{yt_alt_ts}'
+            f'<line x1="{PL}" y1="{PT}" x2="{PL}" y2="{H2-PB}" stroke="var(--grid)" stroke-width="1"/>'
+            f'<line x1="{W2-PR_TS}" y1="{PT}" x2="{W2-PR_TS}" y2="{H2-PB}" stroke="var(--grid)" stroke-width="1"/>'
             f'</svg>'
         )
 
@@ -1241,6 +1330,10 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
 
 <div style="background:var(--surface);border:1px solid var(--grid);border-radius:8px;padding:12px 8px 4px;margin-bottom:16px;">
   {temp_cmp_svg}
+</div>
+
+<div style="background:var(--surface);border:1px solid var(--grid);border-radius:8px;padding:12px 8px 4px;margin-bottom:16px;">
+  {temp_sim_svg}
 </div>
 
 <div style="background:var(--surface);border:1px solid var(--grid);border-radius:8px;padding:12px 8px 4px;">
