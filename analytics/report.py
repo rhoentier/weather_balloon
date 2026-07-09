@@ -1045,6 +1045,13 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
             f'<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{col};"></span>'
             f'<span style="font-size:12px;color:var(--secondary)">{ph}</span></span>'
         )
+    for label, sim_col in sim_phase_colors.items():
+        title = "Sim. Pre-Flight" if "preflight" in label else "Sim. Aufstieg"
+        legend_html += (
+            f'<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;">'
+            f'<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{sim_col};opacity:0.6;"></span>'
+            f'<span style="font-size:12px;color:var(--secondary)">{title}</span></span>'
+        )
     legend_html += (
         '<span style="display:inline-flex;align-items:center;gap:4px;">'
         '<span style="display:inline-block;width:10px;height:10px;border-radius:2px;'
