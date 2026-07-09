@@ -979,9 +979,12 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
         return (t_cont - bar_t0) / _bar_span * 100
 
     # Zeitmarker für Statusleiste
-    _events = [("08:40\nBoard",   8 * 3600 * 1000 + 40 * 60 * 1000),
-               ("09:00\nStart",   9 * 3600 * 1000),
-               ("11:00\nLandung", 11 * 3600 * 1000)]
+    _events = [("08:40\nBoard",     8 * 3600 * 1000 + 40 * 60 * 1000),
+               ("09:33\nStart",     9 * 3600 * 1000 + 33 * 60 * 1000 + 26 * 1000),
+               ("10:14\nAbstieg",   10 * 3600 * 1000 + 14 * 60 * 1000 + 24 * 1000),
+               ("10:59\nLandung",   10 * 3600 * 1000 + 59 * 60 * 1000 + 35 * 1000),
+               ("12:20\nAufgehoben", 12 * 3600 * 1000 + 20 * 60 * 1000 + 40 * 1000),
+               ("13:13\nEnde",      13 * 3600 * 1000 + 13 * 60 * 1000 + 2 * 1000)]
     markers_html = ""
     for label, wall_ms in _events:
         t_cont = wall_ms - offset_ms
