@@ -546,6 +546,104 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
             f'</svg>'
         )
 
+    # ── UV-Sensor ─────────────────────────────────────────────────────────────
+    df_uv = df[["t_ms_cont", "phase", "uv_raw", "alt_baro_m"]].copy()
+    df_uv["t_plot"] = df_uv["t_ms_cont"] + offset_ms
+    df_uv = df_uv.sort_values("t_plot")
+
+    uv_data = df_uv[df_uv["uv_raw"].notna() & (df_uv["uv_raw"] > 0)]
+    uv_s    = df["uv_raw"]
+
+    def _uv_stat_row(label, s):
+        s = s.dropna()
+        s = s[s > 0]
+        if s.empty:
+            return f'<tr><td>{label}</td><td colspan="5" style="color:var(--muted)">keine Daten</td></tr>'
+        return (f'<tr><td>{label}</td><td>{len(s):,}</td>'
+                f'<td>{s.min():.1f}</td><td>{s.max():.1f}</td>'
+                f'<td>{s.median():.1f}</td><td>{s.mean():.1f}</td></tr>')
+
+    uv_table_rows = _uv_stat_row("UV ADC-Counts (GUVA-S12SD)", uv_s)
+
+    flight_rows = df_uv[df_uv["phase"].isin(["ASCENT", "DESCENT"])]
+
+    if uv_data.empty:
+        uv_alt_svg = "<p style='color:var(--muted)'>Keine UV-Daten.</p>"
+    else:
+        uv_lo  = 0
+        uv_hi  = float(uv_data["uv_raw"].max()) * 1.1
+        t0_uv  = t0_t
+        t1_uv  = t1_t
+        PR_UV  = 52
+
+        def tx_uv(t): return PL + (t - t0_uv) / (t1_uv - t0_uv) * (W2 - PL - PR_UV)
+        def ty_uv(v): return PT + (1 - (v - uv_lo) / (uv_hi - uv_lo)) * (H2 - PT - PB)
+        a_hi_uv = float(flight_rows["alt_baro_m"].dropna().max()) * 1.05
+
+        def ty_alt_uv(a):
+            return PT + (1 - (a - 0) / (a_hi_uv - 0)) * (H2 - PT - PB)
+
+        xt_uv = ""
+        tk = (t0_uv // (3600*1000)) * (3600*1000)
+        while tk <= t1_uv:
+            if tk >= t0_uv:
+                x = tx_uv(tk)
+                xt_uv += (f'<line x1="{x:.1f}" y1="{PT}" x2="{x:.1f}" y2="{H2-PB}" '
+                          f'stroke="var(--grid)" stroke-width="1"/>'
+                          f'<text x="{x:.1f}" y="{H2-4}" text-anchor="middle" '
+                          f'font-size="10" fill="var(--muted)">{ms_to_hhmm(tk)}</text>')
+            tk += 3600*1000
+
+        yt_uv = ""
+        for i in range(5):
+            v    = uv_lo + i * (uv_hi - uv_lo) / 4
+            ypos = ty_uv(v)
+            yt_uv += (f'<line x1="{PL}" y1="{ypos:.1f}" x2="{W2-PR_UV}" y2="{ypos:.1f}" '
+                      f'stroke="var(--grid)" stroke-width="1"/>'
+                      f'<text x="{PL-4}" y="{ypos+4:.1f}" text-anchor="end" '
+                      f'font-size="10" fill="var(--muted)">{v:.0f}</text>')
+
+        yt_alt_uv = ""
+        for i in range(5):
+            a    = i * a_hi_uv / 4
+            ypos = ty_alt_uv(a)
+            yt_alt_uv += (f'<text x="{W2-PR_UV+6}" y="{ypos+4:.1f}" text-anchor="start" '
+                          f'font-size="10" fill="var(--muted)">{a/1000:.0f}k</text>')
+
+        sub_uv     = uv_data.copy()
+        sub_alt_uv = flight_rows[flight_rows["alt_baro_m"].notna()].copy()
+        if len(sub_uv)     > 600: sub_uv     = sub_uv.iloc[::len(sub_uv)//600]
+        if len(sub_alt_uv) > 600: sub_alt_uv = sub_alt_uv.iloc[::len(sub_alt_uv)//600]
+
+        def _pts(sub, col, ty_fn):
+            pts = [(tx_uv(r["t_plot"]), ty_fn(r[col])) for _, r in sub.iterrows() if pd.notna(r[col])]
+            if len(pts) < 2: return ""
+            d = "M " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+            return d
+
+        p_uv_d  = _pts(sub_uv,     "uv_raw",    ty_uv)
+        p_alt_d = _pts(sub_alt_uv, "alt_baro_m", ty_alt_uv)
+
+        p_uv  = f'<path d="{p_uv_d}"  fill="none" stroke="#9b59b6" stroke-width="1.5" stroke-linejoin="round"/>' if p_uv_d  else ""
+        p_alt_uv_path = f'<path d="{p_alt_d}" fill="none" stroke="#2a78d6" stroke-width="1.5" stroke-linejoin="round"/>' if p_alt_d else ""
+
+        leg_uv = (
+            '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;">'
+            '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#9b59b6" stroke-width="2"/></svg>'
+            '<span style="font-size:12px;color:var(--secondary)">UV ADC-Counts (links)</span></span>'
+            '<span style="display:inline-flex;align-items:center;gap:4px;">'
+            '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#2a78d6" stroke-width="2"/></svg>'
+            '<span style="font-size:12px;color:var(--secondary)">Höhe (m, rechts)</span></span>'
+        )
+        uv_alt_svg = (
+            f'<div style="margin-bottom:6px">{leg_uv}</div>'
+            f'<svg viewBox="0 0 {W2} {H2}" width="100%" style="display:block;overflow:visible">'
+            f'{yt_uv}{xt_uv}{p_uv}{p_alt_uv_path}{yt_alt_uv}'
+            f'<line x1="{PL}" y1="{PT}" x2="{PL}" y2="{H2-PB}" stroke="var(--grid)" stroke-width="1"/>'
+            f'<line x1="{W2-PR_UV}" y1="{PT}" x2="{W2-PR_UV}" y2="{H2-PB}" stroke="var(--grid)" stroke-width="1"/>'
+            f'</svg>'
+        )
+
     # Phasenfarben
     phase_colors = {
         "PREFLIGHT": "#898781",
@@ -822,8 +920,19 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
   {temp_alt_svg}
 </div>
 
-<!-- 4. Min/Max -->
-<h2>4. Sensor-Wertebereiche</h2>
+<!-- 4. UV-Sensor -->
+<h2>4. UV-Sensor</h2>
+<table style="margin-bottom:20px">
+  <thead><tr><th>Sensor</th><th>n</th><th>Min</th><th>Max</th><th>Median</th><th>Ø</th></tr></thead>
+  <tbody>{uv_table_rows}</tbody>
+</table>
+
+<div style="background:var(--surface);border:1px solid var(--grid);border-radius:8px;padding:12px 8px 4px;">
+  {uv_alt_svg}
+</div>
+
+<!-- 5. Min/Max -->
+<h2>5. Sensor-Wertebereiche</h2>
 <table>
   <thead><tr><th>Sensor</th><th>Einheit</th><th>n</th><th>Min</th><th>Ø</th><th>Max</th></tr></thead>
   <tbody>{mm_rows}</tbody>
