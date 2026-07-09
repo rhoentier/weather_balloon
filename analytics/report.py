@@ -471,14 +471,14 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
         if len(sub_int) > 600: sub_int = sub_int.iloc[::len(sub_int)//600]
 
         p_ext = _make_temp_path(sub_ext, "temp_ext_c", "#e05c00")
-        p_int = _make_temp_path(sub_int, "temp_c",     "#2a78d6", dashed=True)
+        p_int = _make_temp_path(sub_int, "temp_c",     "#2a78d6")
 
         leg_cmp = (
             '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;">'
             '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#e05c00" stroke-width="2"/></svg>'
             '<span style="font-size:12px;color:var(--secondary)">Außen (DS18B20)</span></span>'
             '<span style="display:inline-flex;align-items:center;gap:4px;">'
-            '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#2a78d6" stroke-width="2" stroke-dasharray="5,3"/></svg>'
+            '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#2a78d6" stroke-width="2"/></svg>'
             '<span style="font-size:12px;color:var(--secondary)">Innen (BMP280)</span></span>'
         )
         temp_cmp_svg = (
@@ -527,14 +527,15 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
             return f'<path d="{d}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linejoin="round"/>'
 
         p_ext3 = _path_raw(sub_ext3, "temp_ext_c", ty_ext,  "#e05c00")
-        p_alt3 = _path_raw(sub_alt3, "alt_baro_m", ty_alt2, "#2a78d6")
+        p_alt3_d = "M " + " L ".join(f"{tx3(r['t_plot']):.1f},{ty_alt2(r['alt_baro_m']):.1f}" for _, r in sub_alt3.iterrows() if pd.notna(r["alt_baro_m"]))
+        p_alt3 = f'<path d="{p_alt3_d}" fill="none" stroke="#2a78d6" stroke-width="1.5" stroke-dasharray="5,3" stroke-linejoin="round"/>' if len(sub_alt3) >= 2 else ""
 
         leg_alt = (
             '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;">'
             '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#e05c00" stroke-width="2"/></svg>'
             '<span style="font-size:12px;color:var(--secondary)">Außentemp. (°C, links)</span></span>'
             '<span style="display:inline-flex;align-items:center;gap:4px;">'
-            '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#2a78d6" stroke-width="2"/></svg>'
+            '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#2a78d6" stroke-width="2" stroke-dasharray="5,3"/></svg>'
             '<span style="font-size:12px;color:var(--secondary)">Höhe (m, rechts)</span></span>'
         )
         temp_alt_svg = (
@@ -543,6 +544,100 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
             f'{yt_ext}{xt3}{p_ext3}{p_alt3}{yt_alt2}'
             f'<line x1="{PL}" y1="{PT}" x2="{PL}" y2="{H2-PB}" stroke="var(--grid)" stroke-width="1"/>'
             f'<line x1="{W2-PR2}" y1="{PT}" x2="{W2-PR2}" y2="{H2-PB}" stroke="var(--grid)" stroke-width="1"/>'
+            f'</svg>'
+        )
+
+    # ── Luftdruck ─────────────────────────────────────────────────────────────
+    df_pres = df[["t_ms_cont", "phase", "pressure_hpa", "alt_baro_m"]].copy()
+    df_pres["t_plot"] = df_pres["t_ms_cont"] + offset_ms
+    df_pres = df_pres.sort_values("t_plot")
+
+    pres_flight = df_pres[df_pres["pressure_hpa"] >= 0]
+
+    def _pres_stat_row(label, s):
+        s = s.dropna()
+        s = s[s >= 0]
+        if s.empty:
+            return f'<tr><td>{label}</td><td colspan="5" style="color:var(--muted)">keine Daten</td></tr>'
+        return (f'<tr><td>{label}</td><td>{len(s):,}</td>'
+                f'<td>{s.min():.1f}</td><td>{s.max():.1f}</td>'
+                f'<td>{s.median():.1f}</td><td>{s.mean():.1f}</td></tr>')
+
+    pres_table_rows = _pres_stat_row("Luftdruck (BMP280)", pres_flight["pressure_hpa"])
+
+    if pres_flight.empty:
+        pres_alt_svg = "<p style='color:var(--muted)'>Keine Luftdruckdaten.</p>"
+    else:
+        p_lo = 0
+        p_hi = float(pres_flight["pressure_hpa"].max()) * 1.05
+        t0_p = t0_t
+        t1_p = t1_t
+        a_hi_p = float(pres_flight["alt_baro_m"].dropna().max()) * 1.05
+        PR_P = 52
+
+        def tx_p(t):  return PL + (t - t0_p) / (t1_p - t0_p) * (W2 - PL - PR_P)
+        def ty_p(v):  return PT + (1 - (v - p_lo) / (p_hi - p_lo)) * (H2 - PT - PB)
+        def ty_ap(a): return PT + (1 - (a - 0) / (a_hi_p - 0)) * (H2 - PT - PB)
+
+        xt_p = ""
+        tk = (t0_p // (3600*1000)) * (3600*1000)
+        while tk <= t1_p:
+            if tk >= t0_p:
+                x = tx_p(tk)
+                xt_p += (f'<line x1="{x:.1f}" y1="{PT}" x2="{x:.1f}" y2="{H2-PB}" '
+                         f'stroke="var(--grid)" stroke-width="1"/>'
+                         f'<text x="{x:.1f}" y="{H2-4}" text-anchor="middle" '
+                         f'font-size="10" fill="var(--muted)">{ms_to_hhmm(tk)}</text>')
+            tk += 3600*1000
+
+        yt_p = ""
+        for i in range(5):
+            v    = p_lo + i * (p_hi - p_lo) / 4
+            ypos = ty_p(v)
+            yt_p += (f'<line x1="{PL}" y1="{ypos:.1f}" x2="{W2-PR_P}" y2="{ypos:.1f}" '
+                     f'stroke="var(--grid)" stroke-width="1"/>'
+                     f'<text x="{PL-4}" y="{ypos+4:.1f}" text-anchor="end" '
+                     f'font-size="10" fill="var(--muted)">{v:.0f}</text>')
+
+        yt_ap = ""
+        for i in range(5):
+            a    = i * a_hi_p / 4
+            ypos = ty_ap(a)
+            yt_ap += (f'<text x="{W2-PR_P+6}" y="{ypos+4:.1f}" text-anchor="start" '
+                      f'font-size="10" fill="var(--muted)">{a/1000:.0f}k</text>')
+
+        sub_p = pres_flight.copy()
+        sub_ap = pres_flight[pres_flight["alt_baro_m"].notna()].copy()
+        if len(sub_p)  > 600: sub_p  = sub_p.iloc[::len(sub_p)//600]
+        if len(sub_ap) > 600: sub_ap = sub_ap.iloc[::len(sub_ap)//600]
+
+        def _pp(sub, col, ty_fn, color):
+            pts = [(tx_p(r["t_plot"]), ty_fn(r[col])) for _, r in sub.iterrows() if pd.notna(r[col])]
+            if len(pts) < 2: return ""
+            d = "M " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+            return f'<path d="{d}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linejoin="round"/>'
+
+        def _pp_dashed(sub, col, ty_fn, color, dashed=False):
+            pts = [(tx_p(r["t_plot"]), ty_fn(r[col])) for _, r in sub.iterrows() if pd.notna(r[col])]
+            if len(pts) < 2: return ""
+            d = "M " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+            dash = ' stroke-dasharray="5,3"' if dashed else ""
+            return f'<path d="{d}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linejoin="round"{dash}/>'
+
+        leg_p = (
+            '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;">'
+            '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#e05c00" stroke-width="2"/></svg>'
+            '<span style="font-size:12px;color:var(--secondary)">Luftdruck (hPa, links)</span></span>'
+            '<span style="display:inline-flex;align-items:center;gap:4px;">'
+            '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#2a78d6" stroke-width="2" stroke-dasharray="5,3"/></svg>'
+            '<span style="font-size:12px;color:var(--secondary)">Höhe (m, rechts)</span></span>'
+        )
+        pres_alt_svg = (
+            f'<div style="margin-bottom:6px">{leg_p}</div>'
+            f'<svg viewBox="0 0 {W2} {H2}" width="100%" style="display:block;overflow:visible">'
+            f'{yt_p}{xt_p}{_pp_dashed(sub_p, "pressure_hpa", ty_p, "#e05c00")}{_pp_dashed(sub_ap, "alt_baro_m", ty_ap, "#2a78d6", dashed=True)}{yt_ap}'
+            f'<line x1="{PL}" y1="{PT}" x2="{PL}" y2="{H2-PB}" stroke="var(--grid)" stroke-width="1"/>'
+            f'<line x1="{W2-PR_P}" y1="{PT}" x2="{W2-PR_P}" y2="{H2-PB}" stroke="var(--grid)" stroke-width="1"/>'
             f'</svg>'
         )
 
@@ -565,7 +660,7 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
 
     uv_table_rows = _uv_stat_row("UV ADC-Counts (GUVA-S12SD)", uv_s)
 
-    flight_rows = df_uv[df_uv["phase"].isin(["ASCENT", "DESCENT"])]
+    flight_rows = df_uv
 
     if uv_data.empty:
         uv_alt_svg = "<p style='color:var(--muted)'>Keine UV-Daten.</p>"
@@ -625,14 +720,14 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
         p_alt_d = _pts(sub_alt_uv, "alt_baro_m", ty_alt_uv)
 
         p_uv  = f'<path d="{p_uv_d}"  fill="none" stroke="#9b59b6" stroke-width="1.5" stroke-linejoin="round"/>' if p_uv_d  else ""
-        p_alt_uv_path = f'<path d="{p_alt_d}" fill="none" stroke="#2a78d6" stroke-width="1.5" stroke-linejoin="round"/>' if p_alt_d else ""
+        p_alt_uv_path = f'<path d="{p_alt_d}" fill="none" stroke="#2a78d6" stroke-width="1.5" stroke-dasharray="5,3" stroke-linejoin="round"/>' if p_alt_d else ""
 
         leg_uv = (
             '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;">'
             '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#9b59b6" stroke-width="2"/></svg>'
             '<span style="font-size:12px;color:var(--secondary)">UV ADC-Counts (links)</span></span>'
             '<span style="display:inline-flex;align-items:center;gap:4px;">'
-            '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#2a78d6" stroke-width="2"/></svg>'
+            '<svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#2a78d6" stroke-width="2" stroke-dasharray="5,3"/></svg>'
             '<span style="font-size:12px;color:var(--secondary)">Höhe (m, rechts)</span></span>'
         )
         uv_alt_svg = (
@@ -920,8 +1015,19 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
   {temp_alt_svg}
 </div>
 
-<!-- 4. UV-Sensor -->
-<h2>4. UV-Sensor</h2>
+<!-- 4. Luftdruck -->
+<h2>4. Luftdruck</h2>
+<table style="margin-bottom:20px">
+  <thead><tr><th>Phase</th><th>n</th><th>Min (hPa)</th><th>Max (hPa)</th><th>Median (hPa)</th><th>Ø (hPa)</th></tr></thead>
+  <tbody>{pres_table_rows}</tbody>
+</table>
+
+<div style="background:var(--surface);border:1px solid var(--grid);border-radius:8px;padding:12px 8px 4px;">
+  {pres_alt_svg}
+</div>
+
+<!-- 5. UV-Sensor -->
+<h2>5. UV-Sensor</h2>
 <table style="margin-bottom:20px">
   <thead><tr><th>Sensor</th><th>n</th><th>Min</th><th>Max</th><th>Median</th><th>Ø</th></tr></thead>
   <tbody>{uv_table_rows}</tbody>
@@ -931,8 +1037,8 @@ def render_html(ts: dict, hp: dict, mm: list[dict], an: list[dict], fi: dict, df
   {uv_alt_svg}
 </div>
 
-<!-- 5. Min/Max -->
-<h2>5. Sensor-Wertebereiche</h2>
+<!-- 6. Min/Max -->
+<h2>6. Sensor-Wertebereiche</h2>
 <table>
   <thead><tr><th>Sensor</th><th>Einheit</th><th>n</th><th>Min</th><th>Ø</th><th>Max</th></tr></thead>
   <tbody>{mm_rows}</tbody>
